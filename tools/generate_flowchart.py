@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Generates a flowchart from Python, C, or C++ source files by analyzing function calls.
-The output is in Graphviz DOT format (JSON, PNG, and SVG).
+The default output is a PNG image. JSON and SVG outputs are optional.
 """
 
 import ast
@@ -268,14 +268,24 @@ def main():
     Main function to parse arguments and run the analysis.
     """
     parser = argparse.ArgumentParser(
-        description="Generate a flowchart JSON, PNG, and SVG from Python, C, or C++ source files.",
+        description="Generate a flowchart PNG from Python, C, or C++ source files.",
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument("source_file", help="Path to the source file to analyze (Python, C, or C++).")
     parser.add_argument(
         "--no-images",
         action="store_true",
-        help="Do not generate PNG and SVG images (requires Graphviz)."
+        help="Do not generate PNG image (requires Graphviz)."
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Also generate JSON output file."
+    )
+    parser.add_argument(
+        "--svg",
+        action="store_true",
+        help="Also generate SVG image file (requires Graphviz)."
     )
     parser.add_argument(
         "--print-dot",
@@ -309,11 +319,13 @@ def main():
 
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
         base_filename = f"{script_path.stem}_flowchart_{timestamp}"
-        
-        json_output_path = script_path.parent / f"{base_filename}.json"
-        with open(json_output_path, 'w', encoding='utf-8') as f:
-            json.dump(graph, f, indent=2, ensure_ascii=False)
-        print(f"Call graph data saved to: {json_output_path}")
+
+        # Generate JSON only if requested
+        if args.json:
+            json_output_path = script_path.parent / f"{base_filename}.json"
+            with open(json_output_path, 'w', encoding='utf-8') as f:
+                json.dump(graph, f, indent=2, ensure_ascii=False)
+            print(f"Call graph data saved to: {json_output_path}")
 
         dot_representation = generate_dot_graph(graph, script_path.name)
 
@@ -326,7 +338,6 @@ def main():
 
         # --- Image Generation ---
         png_output_path = script_path.parent / f"{base_filename}.png"
-        svg_output_path = script_path.parent / f"{base_filename}.svg"
 
         try:
             # Generate PNG
@@ -336,12 +347,14 @@ def main():
             )
             print(f"Flowchart image saved to: {png_output_path}")
 
-            # Generate SVG
-            subprocess.run(
-                ['dot', '-Tsvg', '-o', str(svg_output_path)],
-                input=dot_representation, encoding='utf-8', check=True, capture_output=True
-            )
-            print(f"Flowchart image saved to: {svg_output_path}")
+            # Generate SVG only if requested
+            if args.svg:
+                svg_output_path = script_path.parent / f"{base_filename}.svg"
+                subprocess.run(
+                    ['dot', '-Tsvg', '-o', str(svg_output_path)],
+                    input=dot_representation, encoding='utf-8', check=True, capture_output=True
+                )
+                print(f"Flowchart image saved to: {svg_output_path}")
 
         except FileNotFoundError:
             print("\nWarning: 'dot' command not found (Graphviz). Images were not generated.", file=sys.stderr)
