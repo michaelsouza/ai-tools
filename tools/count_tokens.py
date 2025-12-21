@@ -105,6 +105,7 @@ TEXT_EXTENSIONS = {
     ".cfg",
     ".log",
     ".tex",
+    ".bib",
     ".rst",
     ".org",
     ".adoc",

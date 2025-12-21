@@ -30,3 +30,5 @@ tree-sitter-cpp==0.22.3
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 urllib3==2.5.0
+yt-dlp==2024.12.13
+demucs==4.0.1
