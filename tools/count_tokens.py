@@ -35,8 +35,8 @@ Supported Encodings:
     - p50k_edit: Older edit models
 
 Supported File Types:
-    Text files: .txt, .md, .log, .csv
-    Code files: .py, .js, .ts, .java, .c, .cpp, .go, .rs, .rb, .php, .sh
+    Text files: .txt, .md, .log, .csv, .tex, .bib
+    Code files: .py, .js, .ts, .java, .c, .cpp, .go, .rs, .rb, .php, .sh, .f90
     Config files: .json, .yaml, .yml, .toml, .ini, .cfg
     Markup files: .xml, .html, .css, .tex, .rst, .org, .adoc, .sql
     AMPL files: .mod
@@ -81,6 +81,8 @@ TEXT_EXTENSIONS = {
     ".md",
     ".csv",
     ".json",
+    ".tex",
+    ".bib",
     ".xml",
     ".html",
     ".css",
@@ -92,6 +94,7 @@ TEXT_EXTENSIONS = {
     ".cpp",
     ".h",
     ".hpp",
+    ".f90",
     ".go",
     ".rs",
     ".rb",
@@ -147,9 +150,7 @@ def get_files_to_process(path: Path, all_files: bool = False) -> List[Path]:
     return files
 
 
-def process_files(
-    files: List[Path], encoding_name: str, base_path: Path
-) -> List[Tuple[str, int, int, str]]:
+def process_files(files: List[Path], encoding_name: str, base_path: Path) -> List[Tuple[str, int, int, str]]:
     """Process files and return results."""
     results = []
 
@@ -327,9 +328,7 @@ Examples:
     console.print(f"[cyan]Found {len(files)} file(s) to process[/cyan]\n")
 
     # Process files
-    results = process_files(
-        files, args.encoding, path.parent if path.is_file() else path
-    )
+    results = process_files(files, args.encoding, path.parent if path.is_file() else path)
 
     # Display results
     console.print()
