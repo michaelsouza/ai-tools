@@ -395,7 +395,7 @@ def display_results_summary(
 #
 def main():
     """Main function that orchestrates the PDF processing workflow (Mistral only)."""
-    load_dotenv()
+    load_dotenv('/home/michael/gitrepos/ai-tools/.env')
     console = Console()
 
     args = parse_and_validate_arguments(console)
