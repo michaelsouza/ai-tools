@@ -96,6 +96,7 @@ import argparse
 import base64
 import sys
 import re
+import io
 from typing import Optional, Tuple, List, Any  # Added Any
 
 from dotenv import load_dotenv
@@ -123,6 +124,7 @@ def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespac
     parser.add_argument("--include-images", action="store_true", help="Include images from OCR, save to disk, and rewrite links in Markdown.")
     parser.add_argument("-o", "--output", help="Output Markdown file path (default: alongside PDF with .md).")
     parser.add_argument("--no-preview", action="store_true", help="Do not print Markdown preview after processing.")
+    parser.add_argument("--pages", help="Page range to process (e.g., '1-5', '1,3,5'). 1-based indexing.")
     args = parser.parse_args()
 
     if not os.path.exists(args.pdf_path):
@@ -132,6 +134,31 @@ def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespac
         console.print(f"[bold red]Error:[/] The file {args.pdf_path} is not a PDF.")
         return None
     return args
+
+
+def parse_page_range(page_range_str: str) -> List[int]:
+    """Parses a string like '1-5,8,11-13' into a list of 0-based page indices."""
+    pages = []
+    if not page_range_str:
+        return pages
+    
+    parts = page_range_str.split(',')
+    for part in parts:
+        part = part.strip()
+        if '-' in part:
+            try:
+                start, end = map(int, part.split('-'))
+                # Convert 1-based to 0-based, inclusive end
+                pages.extend(range(start - 1, end))
+            except ValueError:
+                continue
+        else:
+            try:
+                # Convert 1-based to 0-based
+                pages.append(int(part) - 1)
+            except ValueError:
+                continue
+    return sorted(list(set(pages)))
 
 
 def initialize_mistral_client(console: Console) -> Optional[Mistral]:
@@ -150,18 +177,50 @@ def initialize_mistral_client(console: Console) -> Optional[Mistral]:
 
 
 def get_pdf_details(
-    pdf_path: str, console: Console
+    pdf_path: str, console: Console, pages_arg: Optional[str] = None
 ) -> Tuple[Optional[bytes], Optional[int]]:
-    """Reads PDF content and gets the number of pages."""
+    """Reads PDF content (optionally filtered by page range) and gets the number of pages."""
     with console.status("[bold green]Reading PDF file...", spinner="dots"):
         try:
-            with open(pdf_path, "rb") as pdf_file_obj:
-                pdf_content = pdf_file_obj.read()
-            # Re-open for PyPDF2 as it needs a seekable stream after full read
+            # If no pages specified, read the file directly
+            if not pages_arg:
+                with open(pdf_path, "rb") as pdf_file_obj:
+                    pdf_content = pdf_file_obj.read()
+                # Re-open for PyPDF2 as it needs a seekable stream after full read
+                with open(pdf_path, "rb") as pdf_file_for_pypdf2:
+                    pdf_reader = PyPDF2.PdfReader(pdf_file_for_pypdf2)
+                    num_pages = len(pdf_reader.pages)
+                return pdf_content, num_pages
+            
+            # If pages ARE specified, extract them
+            target_indices = parse_page_range(pages_arg)
+            if not target_indices:
+                 console.print(f"[bold red]Error:[/] Invalid page range '{pages_arg}'.")
+                 return None, None
+
+            output_pdf = PyPDF2.PdfWriter()
             with open(pdf_path, "rb") as pdf_file_for_pypdf2:
                 pdf_reader = PyPDF2.PdfReader(pdf_file_for_pypdf2)
-                num_pages = len(pdf_reader.pages)
-            return pdf_content, num_pages
+                total_pages = len(pdf_reader.pages)
+                
+                added_count = 0
+                for idx in target_indices:
+                    if 0 <= idx < total_pages:
+                        output_pdf.add_page(pdf_reader.pages[idx])
+                        added_count += 1
+                    else:
+                        console.print(f"[yellow]Warning:[/] Page {idx + 1} is out of bounds (1-{total_pages}). Skipped.")
+
+                if added_count == 0:
+                     console.print("[bold red]Error:[/] No valid pages selected.")
+                     return None, None
+
+                # Write the new PDF to bytes
+                pdf_bytes_io = io.BytesIO()
+                output_pdf.write(pdf_bytes_io)
+                pdf_bytes_io.seek(0)
+                return pdf_bytes_io.read(), added_count
+
         except Exception as e:
             console.print(
                 f"[bold red]Error reading PDF {os.path.basename(pdf_path)}:[/] {e}"
@@ -412,7 +471,7 @@ def main():
     pdf_stem = os.path.splitext(os.path.basename(args.pdf_path))[0]
     images_dir = os.path.join(output_dir, f"{pdf_stem}_images") if args.include_images else None
 
-    pdf_content, num_pages = get_pdf_details(args.pdf_path, console)
+    pdf_content, num_pages = get_pdf_details(args.pdf_path, console, args.pages)
     if pdf_content is None or num_pages is None:
         sys.exit(1)
 
