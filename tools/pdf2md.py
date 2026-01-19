@@ -358,7 +358,7 @@ def extract_pages_content_and_save_images_mistral(
 # --- Common Utility Functions ---
 def generate_output_filename(pdf_path: str) -> str:
     """Generates the output Markdown filename in the same directory as the PDF."""
-    pdf_dir = os.path.dirname(pdf_path)
+    pdf_dir = os.path.dirname(os.path.abspath(pdf_path))
     base_name_without_ext, _ = os.path.splitext(os.path.basename(pdf_path))
     return os.path.join(pdf_dir, base_name_without_ext + ".md")
 
