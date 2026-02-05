@@ -32,3 +32,14 @@ typing_extensions==4.15.0
 urllib3==2.5.0
 yt-dlp==2024.12.13
 demucs==4.0.1
+
+# Audio transcription
+faster-whisper==1.1.0
+sounddevice==0.5.1
+numpy==2.2.2
+
+# Audio processing (used by mix_audio.py)
+pydub==0.25.1
+
+# GUI (used by audio_transcribe_gui.py)
+customtkinter==5.2.2
