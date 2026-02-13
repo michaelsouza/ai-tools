@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/michael/gitrepos/ai-tools/.venv/bin/python
 """
 Token Counter - Count tokens in text files using tiktoken
 

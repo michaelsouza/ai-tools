@@ -7,6 +7,7 @@ CLI helpers for PDFs, web pages, and token counts.
 python3 -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+playwright install chromium
 ```
 
 ## Configure
@@ -30,6 +31,13 @@ MISTRAL_API_KEY=your_mistral_api_key
   - Example:
     ```bash
     python url2md.py https://example.com/article -o article.md
+    ```
+
+- `slides2pdf.py` — HTML Slides → PDF
+  - Captures each slide from an HTML file using Playwright and saves as a PDF.
+  - Example:
+    ```bash
+    python tools/slides2pdf.py
     ```
 
 - `count_tokens.py` — Token counts for files/dirs
