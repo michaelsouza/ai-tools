@@ -260,6 +260,7 @@ def generate_dot_graph(graph, script_name):
     dot_lines.append("  rankdir=LR;")
     dot_lines.append('  node [shape=box, style=rounded, fontname="Helvetica"];')
     dot_lines.append('  edge [fontname="Helvetica"];')
+    dot_lines.append("  ordering=out;")
 
     all_nodes = set(graph.keys())
     for callees in graph.values():
@@ -270,7 +271,11 @@ def generate_dot_graph(graph, script_name):
 
     for caller, callees in graph.items():
         if callees:
-            for callee in sorted(list(set(callees))):
+            seen = set()
+            for callee in callees:
+                if callee in seen:
+                    continue
+                seen.add(callee)
                 dot_lines.append(f'  "{caller}" -> "{callee}";')
 
     dot_lines.append("}")
