@@ -81,6 +81,7 @@ TEXT_EXTENSIONS = {
     ".md",
     ".csv",
     ".json",
+    ".jsonl",
     ".tex",
     ".bib",
     ".xml",
