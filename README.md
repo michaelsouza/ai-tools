@@ -19,12 +19,18 @@ MISTRAL_API_KEY=your_mistral_api_key
 ## Tools
 
 - `pdf2md.py` — PDF → Markdown via Mistral OCR (no local fallback)
+  - Accepts either a single PDF file or a directory containing PDFs
   - Flags: `-y/--yes`, `--include-images`, `-o/--output`, `--no-preview`
   - Example:
     ```bash
     python pdf2md.py file.pdf --yes --include-images -o file.md
     ```
+  - Batch example:
+    ```bash
+    python pdf2md.py ./pdfs --yes
+    ```
   - If `--include-images`, images save to `<output_dir>/<pdf_stem>_images/` and links are rewritten.
+  - If the target `.md` already exists, that PDF is skipped and processing continues.
 
 - `url2md.py` — Web page → Markdown
   - Flags: `-o/--output`, `--save-html`, `--save-clean-html`

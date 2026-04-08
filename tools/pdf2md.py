@@ -9,11 +9,16 @@ structure including headers, lists, tables, and formatting.
 
 The script provides an interactive terminal experience with progress tracking,
 confirmation prompts, and formatted output. It can also extract and save images
-from the PDF with automatic link rewriting in the generated markdown.
+from the PDF with automatic link rewriting in the generated markdown. When a
+directory is provided, all PDFs in that directory are processed and existing
+Markdown outputs are skipped automatically.
 
 Usage:
     # Basic conversion (interactive mode)
     python pdf2md.py document.pdf
+
+    # Convert all PDFs in a directory
+    python pdf2md.py ./pdfs
 
     # Non-interactive mode (auto-confirm all prompts)
     python pdf2md.py document.pdf -y
@@ -31,7 +36,7 @@ Usage:
     python pdf2md.py document.pdf --no-preview
 
 Options:
-    pdf_path             Path to the PDF file to convert (required)
+    pdf_path             Path to the PDF file or directory to process (required)
     -y, --yes            Non-interactive mode - assume Yes to all prompts
     --include-images     Extract images from PDF, save to disk, and rewrite markdown links
     -o, --output PATH    Custom output file path (default: same location as PDF with .md extension)
@@ -97,7 +102,7 @@ import base64
 import sys
 import re
 import io
-from typing import Optional, Tuple, List, Any  # Added Any
+from typing import Optional, Tuple, List, Any
 
 from dotenv import load_dotenv
 from mistralai import Mistral
@@ -115,11 +120,14 @@ from rich.prompt import Confirm
 from rich.syntax import Syntax
 
 def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespace]:
-    """Parses command-line arguments and validates the PDF path."""
+    """Parses command-line arguments and validates the input path."""
     parser = argparse.ArgumentParser(
         description="Convert a PDF to Markdown using Mistral OCR (no local fallback)."
     )
-    parser.add_argument("pdf_path", help="Path to the PDF file to be processed.")
+    parser.add_argument(
+        "pdf_path",
+        help="Path to the PDF file or a directory containing PDFs to be processed.",
+    )
     parser.add_argument("-y", "--yes", action="store_true", help="Run non-interactively (assume Yes to prompts).")
     parser.add_argument("--include-images", action="store_true", help="Include images from OCR, save to disk, and rewrite links in Markdown.")
     parser.add_argument("-o", "--output", help="Output Markdown file path (default: alongside PDF with .md).")
@@ -128,10 +136,25 @@ def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespac
     args = parser.parse_args()
 
     if not os.path.exists(args.pdf_path):
-        console.print(f"[bold red]Error:[/] The file {args.pdf_path} does not exist.")
+        console.print(f"[bold red]Error:[/] The path {args.pdf_path} does not exist.")
         return None
-    if not args.pdf_path.lower().endswith(".pdf"):
+    if os.path.isfile(args.pdf_path) and not args.pdf_path.lower().endswith(".pdf"):
         console.print(f"[bold red]Error:[/] The file {args.pdf_path} is not a PDF.")
+        return None
+    if os.path.isdir(args.pdf_path) and args.pages:
+        console.print(
+            "[bold red]Error:[/] The --pages option is only supported for a single PDF file."
+        )
+        return None
+    if (
+        os.path.isdir(args.pdf_path)
+        and args.output
+        and os.path.exists(args.output)
+        and not os.path.isdir(args.output)
+    ):
+        console.print(
+            "[bold red]Error:[/] When processing a directory, --output must be a directory path."
+        )
         return None
     return args
 
@@ -422,6 +445,25 @@ def generate_output_filename(pdf_path: str) -> str:
     return os.path.join(pdf_dir, base_name_without_ext + ".md")
 
 
+def generate_output_filename_for_directory(pdf_path: str, output_dir: str) -> str:
+    """Generates the output Markdown filename inside the provided output directory."""
+    base_name_without_ext, _ = os.path.splitext(os.path.basename(pdf_path))
+    return os.path.join(os.path.abspath(output_dir), base_name_without_ext + ".md")
+
+
+def collect_pdf_files(input_path: str) -> List[str]:
+    """Collects PDF files from a single PDF path or a directory."""
+    if os.path.isfile(input_path):
+        return [os.path.abspath(input_path)]
+
+    pdf_files = []
+    for entry in sorted(os.listdir(input_path)):
+        full_path = os.path.join(input_path, entry)
+        if os.path.isfile(full_path) and entry.lower().endswith(".pdf"):
+            pdf_files.append(os.path.abspath(full_path))
+    return pdf_files
+
+
 def save_markdown_to_file(final_markdown: str, output_filename: str):
     """Saves the final markdown content to a file."""
     with open(output_filename, "w", encoding="utf-8") as fd:
@@ -449,6 +491,83 @@ def display_results_summary(
         )
 
 
+def process_single_pdf(
+    pdf_path: str,
+    output_md_filename: str,
+    console: Console,
+    args: argparse.Namespace,
+    mistral_client: Mistral,
+    show_preview: bool,
+) -> bool:
+    """Processes a single PDF and returns True on success."""
+    output_dir = os.path.dirname(output_md_filename)
+    pdf_stem = os.path.splitext(os.path.basename(pdf_path))[0]
+    images_dir = os.path.join(output_dir, f"{pdf_stem}_images") if args.include_images else None
+
+    if os.path.exists(output_md_filename):
+        console.print(
+            f"[yellow]Skipping[/] [cyan]{os.path.basename(pdf_path)}[/]: output already exists at [cyan]{output_md_filename}[/]."
+        )
+        return True
+
+    pdf_content, num_pages = get_pdf_details(pdf_path, console, args.pages)
+    if pdf_content is None or num_pages is None:
+        return False
+
+    pdf_filename_basename = os.path.basename(pdf_path)
+    display_pdf_info(pdf_filename_basename, num_pages, console)
+
+    proceed, include_mistral_images_in_output = confirm_and_configure_processing(
+        num_pages, pdf_filename_basename, console, args
+    )
+    if not proceed:
+        console.print("[yellow]Processing cancelled by user.[/]")
+        return True
+
+    console.print("\n[cyan]Processing with Mistral OCR...[/]")
+    signed_url_str = upload_pdf_to_mistral(
+        mistral_client, pdf_path, pdf_content, console
+    )
+    if not signed_url_str:
+        console.print("[bold red]Failed to upload PDF to Mistral.[/]")
+        return False
+
+    ocr_response = process_ocr_with_mistral(
+        mistral_client,
+        signed_url_str,
+        include_mistral_images_in_output,
+        console,
+    )
+    if not ocr_response or not hasattr(ocr_response, "pages"):
+        console.print(
+            "[bold red]Mistral OCR processing failed or returned no pages.[/]"
+        )
+        return False
+
+    all_markdown_parts = extract_pages_content_and_save_images_mistral(
+        ocr_response,
+        include_mistral_images_in_output,
+        console,
+        images_dir=images_dir,
+        output_dir=output_dir,
+    )
+    final_markdown = "\n\n---\n\n".join(all_markdown_parts)
+
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        save_markdown_to_file(final_markdown, output_md_filename)
+    except Exception as e:
+        console.print(
+            f"[bold red]Failed to write output file '{output_md_filename}':[/] {e}"
+        )
+        return False
+
+    display_results_summary(
+        output_md_filename, final_markdown, console, show_preview=show_preview
+    )
+    return True
+
+
 #
 # --- Main Orchestration Function ---
 #
@@ -461,79 +580,60 @@ def main():
     if not args:
         sys.exit(2)
 
-    # Determine output path early for image link rewriting
-    output_md_filename = (
-        os.path.abspath(args.output)
-        if args.output
-        else generate_output_filename(args.pdf_path)
-    )
-    output_dir = os.path.dirname(output_md_filename)
-    pdf_stem = os.path.splitext(os.path.basename(args.pdf_path))[0]
-    images_dir = os.path.join(output_dir, f"{pdf_stem}_images") if args.include_images else None
-
-    pdf_content, num_pages = get_pdf_details(args.pdf_path, console, args.pages)
-    if pdf_content is None or num_pages is None:
-        sys.exit(1)
-
-    pdf_filename_basename = os.path.basename(args.pdf_path)
-    display_pdf_info(pdf_filename_basename, num_pages, console)
-
-    proceed, include_mistral_images_in_output = confirm_and_configure_processing(
-        num_pages, pdf_filename_basename, console, args
-    )
-    if not proceed:
-        console.print("[yellow]Processing cancelled by user.[/]")
-        sys.exit(0)
-
-    # --- Mistral OCR ---
     mistral_client = initialize_mistral_client(console)
     if not mistral_client:
         console.print("[bold red]Mistral client not available or configured.[/]")
         sys.exit(2)
 
-    console.print("\n[cyan]Processing with Mistral OCR...[/]")
     try:
-        signed_url_str = upload_pdf_to_mistral(
-            mistral_client, args.pdf_path, pdf_content, console
-        )
-        if not signed_url_str:
-            console.print("[bold red]Failed to upload PDF to Mistral.[/]")
+        pdf_files = collect_pdf_files(args.pdf_path)
+        if not pdf_files:
+            console.print("[bold red]Error:[/] No PDF files were found to process.")
             sys.exit(1)
 
-        ocr_response = process_ocr_with_mistral(
-            mistral_client,
-            signed_url_str,
-            include_mistral_images_in_output,
-            console,
-        )
-        if not ocr_response or not hasattr(ocr_response, "pages"):
+        is_directory_mode = os.path.isdir(args.pdf_path)
+        failures = 0
+
+        if is_directory_mode:
             console.print(
-                "[bold red]Mistral OCR processing failed or returned no pages.[/]"
+                Panel(
+                    f"[bold]Directory mode[/]\nFound [yellow]{len(pdf_files)}[/] PDF file(s) in [cyan]{os.path.abspath(args.pdf_path)}[/].",
+                    border_style="blue",
+                    title="Batch Processing",
+                )
             )
+
+        for index, pdf_path in enumerate(pdf_files, start=1):
+            if is_directory_mode:
+                console.print(
+                    f"\n[bold blue]File {index}/{len(pdf_files)}:[/] [cyan]{os.path.basename(pdf_path)}[/]"
+                )
+
+            if args.output:
+                output_md_filename = (
+                    os.path.abspath(args.output)
+                    if not is_directory_mode
+                    else generate_output_filename_for_directory(pdf_path, args.output)
+                )
+            else:
+                output_md_filename = generate_output_filename(pdf_path)
+
+            success = process_single_pdf(
+                pdf_path=pdf_path,
+                output_md_filename=output_md_filename,
+                console=console,
+                args=args,
+                mistral_client=mistral_client,
+                show_preview=(not args.no_preview) and not is_directory_mode,
+            )
+            if not success:
+                failures += 1
+
+        if failures:
+            console.print(f"[bold red]Completed with {failures} failure(s).[/]")
             sys.exit(1)
 
-        all_markdown_parts = extract_pages_content_and_save_images_mistral(
-            ocr_response,
-            include_mistral_images_in_output,
-            console,
-            images_dir=images_dir,
-            output_dir=output_dir,
-        )
-        final_markdown = "\n\n---\n\n".join(all_markdown_parts)
-        # Save output
-        try:
-            os.makedirs(os.path.dirname(output_md_filename), exist_ok=True)
-            save_markdown_to_file(final_markdown, output_md_filename)
-        except Exception as e:
-            console.print(
-                f"[bold red]Failed to write output file '{output_md_filename}':[/] {e}"
-            )
-            sys.exit(1)
-
-        # Display summary/preview
-        display_results_summary(
-            output_md_filename, final_markdown, console, show_preview=(not args.no_preview)
-        )
+        console.print("[bold green]All processing completed successfully.[/]")
         sys.exit(0)
     except Exception as e:
         console.print(f"[bold red]Unexpected error during Mistral processing:[/] {e}")
