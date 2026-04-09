@@ -1,6 +1,6 @@
 # AI Tools
 
-CLI helpers for PDFs, web pages, and token counts.
+CLI helpers for PDFs, web pages, audio, and token counts.
 
 ## Install
 ```bash
@@ -18,16 +18,14 @@ MISTRAL_API_KEY=your_mistral_api_key
 
 ## Tools
 
-- `pdf2md.py` — PDF → Markdown via Mistral OCR (no local fallback)
+- `pdf2md.py` — PDF → Markdown via Mistral OCR
   - Accepts either a single PDF file or a directory containing PDFs
-  - Flags: `-y/--yes`, `--include-images`, `-o/--output`, `--no-preview`
+  - Flags: `-y/--yes`, `--include-images`, `-o/--output`, `--no-preview`, `--pages`
   - Example:
     ```bash
-    python pdf2md.py file.pdf --yes --include-images -o file.md
-    ```
-  - Batch example:
-    ```bash
-    python pdf2md.py ./pdfs --yes
+    python tools/pdf2md.py file.pdf --yes --include-images -o file.md
+    python tools/pdf2md.py ./pdfs --yes
+    python tools/pdf2md.py file.pdf --pages 1-5 -o excerpt.md
     ```
   - If `--include-images`, images save to `<output_dir>/<pdf_stem>_images/` and links are rewritten.
   - If the target `.md` already exists, that PDF is skipped and processing continues.
@@ -36,7 +34,7 @@ MISTRAL_API_KEY=your_mistral_api_key
   - Flags: `-o/--output`, `--save-html`, `--save-clean-html`
   - Example:
     ```bash
-    python url2md.py https://example.com/article -o article.md
+    python tools/url2md.py https://example.com/article -o article.md
     ```
 
 - `slides2pdf.py` — HTML Slides → PDF
@@ -46,9 +44,66 @@ MISTRAL_API_KEY=your_mistral_api_key
     python tools/slides2pdf.py
     ```
 
-- `count_tokens.py` — Token counts for files/dirs
-  - Flag: `-e/--encoding` (default `o200k_base`; also `cl100k_base`, `p50k_base`, `r50k_base`, `p50k_edit`)
+- `html2png.py` — HTML → PNG with automatic whitespace cropping
+  - Flags: `-s/--scale`, `--no-crop`, `-p/--padding`, `--selector`, `-b/--background`, `-q/--quiet`
   - Example:
     ```bash
-    python count_tokens.py . -e cl100k_base
+    python tools/html2png.py diagram.html output.png -s 3
+    ```
+
+- `generate_flowchart.py` — Source code → flowchart PNG (Python, C, C++)
+  - Analyzes function calls and generates a call graph using Graphviz.
+  - Flags: `--no-images`, `--json`, `--svg`, `--print-dot`
+  - Example:
+    ```bash
+    python tools/generate_flowchart.py script.py --svg
+    ```
+
+- `count_tokens.py` — Token counts for files/dirs
+  - Flags: `-e/--encoding` (default `o200k_base`; also `cl100k_base`, `p50k_base`, `r50k_base`, `p50k_edit`), `-a/--all`
+  - Example:
+    ```bash
+    python tools/count_tokens.py . -e cl100k_base
+    ```
+
+- `count_abstract_tokens.py` — Token counts for BibTeX abstract fields
+  - Example:
+    ```bash
+    python tools/count_abstract_tokens.py references.bib
+    ```
+
+- `audio_transcribe.py` — Real-time or batch audio transcription via Faster-Whisper
+  - Flags: `-i/--input`, `-o/--output`, `-m/--model`, `-d/--device`, `-l/--language`, `--timestamps`, `-v/--verbose`
+  - Example:
+    ```bash
+    python tools/audio_transcribe.py                            # Real-time mic
+    python tools/audio_transcribe.py -i audio.mp3 -o out.txt    # Batch file
+    ```
+
+- `audio_transcribe_gui.py` — GUI for real-time audio transcription
+  - Provides a customtkinter interface with model/language selection, recording controls, and clipboard copy.
+  - Example:
+    ```bash
+    python tools/audio_transcribe_gui.py
+    ```
+
+- `youtube2audio.py` — Download audio from YouTube videos/playlists
+  - Flags: `-o/--output`, `-f/--format` (mp3, m4a, opus, flac, wav), `-q/--quality`, `-t/--template`, `-v/--verbose`
+  - Example:
+    ```bash
+    python tools/youtube2audio.py "https://www.youtube.com/watch?v=ID" -o ~/Music -f m4a
+    ```
+
+- `demucs_separate.py` — Separate music into stems (vocals, drums, bass, other)
+  - Flags: `-o/--output`, `-m/--model`, `--two-stems`, `--mp3`, `--mp3-bitrate`, `-d/--device`, `-j/--jobs`
+  - Example:
+    ```bash
+    python tools/demucs_separate.py song.mp3 --two-stems vocals --mp3
+    ```
+
+- `mix_audio.py` — Mix multiple WAV tracks with volume adjustment (dB)
+  - Flags: `-o/--output`
+  - Example:
+    ```bash
+    python tools/mix_audio.py -o mixed.wav track1.wav:0 track2.wav:-3 track3.wav:+2
     ```
