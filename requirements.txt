@@ -43,3 +43,7 @@ pydub==0.25.1
 
 # GUI (used by audio_transcribe_gui.py)
 customtkinter==5.2.2
+
+# Image OCR (used by png2md.py)
+easyocr==1.7.2
+Pillow
