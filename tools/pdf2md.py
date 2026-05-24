@@ -1,21 +1,17 @@
 #!/home/michael/gitrepos/ai-tools/.venv/bin/python
 """
-PDF to Markdown Converter using Mistral OCR
+PDF to Markdown Converter using Nougat (local, default) or Mistral OCR (cloud, opt-in).
 
-This script converts PDF documents to Markdown format using Mistral's OCR API.
-It uploads PDFs to Mistral's cloud service, processes them with their latest OCR
-model (mistral-ocr-latest), and extracts text content while preserving document
-structure including headers, lists, tables, and formatting.
-
-The script provides an interactive terminal experience with progress tracking,
-confirmation prompts, and formatted output. It can also extract and save images
-from the PDF with automatic link rewriting in the generated markdown. When a
-directory is provided, all PDFs in that directory are processed and existing
-Markdown outputs are skipped automatically.
+Default mode uses Facebook's Nougat model which runs entirely locally -- no data leaves
+your machine. Pass --model mistral to use Mistral's cloud OCR API instead (requires a
+MISTRAL_API_KEY in .env). Images are only available in Mistral mode (--include-images).
 
 Usage:
-    # Basic conversion (interactive mode)
+    # Basic conversion with default Nougat model
     python pdf2md.py document.pdf
+
+    # Use Mistral OCR instead
+    python pdf2md.py document.pdf --model mistral
 
     # Convert all PDFs in a directory
     python pdf2md.py ./pdfs
@@ -23,77 +19,54 @@ Usage:
     # Non-interactive mode (auto-confirm all prompts)
     python pdf2md.py document.pdf -y
 
-    # Include images from PDF (saved to disk with relative links)
-    python pdf2md.py document.pdf --include-images
-
     # Specify custom output path
     python pdf2md.py document.pdf -o output/result.md
 
-    # Non-interactive with images and custom output
-    python pdf2md.py document.pdf -y --include-images -o result.md
+    # Nougat-specific: batch size, no-skipping, full precision
+    python pdf2md.py document.pdf -b 8 --no-skipping --full-precision
 
-    # Skip markdown preview after processing
-    python pdf2md.py document.pdf --no-preview
+    # Mistral-specific: include images
+    python pdf2md.py document.pdf --model mistral --include-images
 
 Options:
     pdf_path             Path to the PDF file or directory to process (required)
     -y, --yes            Non-interactive mode - assume Yes to all prompts
-    --include-images     Extract images from PDF, save to disk, and rewrite markdown links
     -o, --output PATH    Custom output file path (default: same location as PDF with .md extension)
     --no-preview         Skip the markdown preview display after processing
+    --pages PAGES        Page range to process (e.g., '1-5', '1,3,5'). 1-based indexing.
 
-Environment Setup:
-    This script requires a Mistral API key set in the environment:
+Model selection:
+    --model {nougat,mistral}
+                         OCR engine to use (default: nougat). 'nougat' runs locally,
+                         'mistral' requires MISTRAL_API_KEY in .env.
 
-    1. Create a .env file in the project directory:
-       echo "MISTRAL_API_KEY=your_api_key_here" > .env
+Nougat options (default model):
+    -b, --batch-size N   Batch size for inference (default: 4; increase if you have VRAM)
+    --no-skipping        Disable failure-detection heuristic (use if you get [MISSING_PAGE])
+    --full-precision     Use float32 instead of bfloat16 (can help on CPU)
 
-    2. Or export the environment variable:
-       export MISTRAL_API_KEY="your_api_key_here"
-
-    Get your API key from: https://console.mistral.ai/
-
-Features:
-    - PDF upload to Mistral's secure cloud service
-    - High-quality OCR using mistral-ocr-latest model
-    - Preserves document structure (headers, paragraphs, lists, tables)
-    - Optional image extraction with base64 decoding
-    - Automatic relative path rewriting for image links
-    - Rich terminal UI with progress bars and spinners
-    - Interactive confirmation prompts (can be disabled)
-    - Markdown syntax highlighting in preview
-    - Error handling with descriptive messages
+Mistral options:
+    --include-images     Extract images from PDF, save to disk, and rewrite markdown links
 
 Output:
     - Markdown file saved alongside PDF (or custom location)
-    - Images saved to {pdf_name}_images/ directory (if --include-images)
-    - Console preview showing first 500 characters
-    - Processing summary with file locations
-
-Image Handling:
-    When --include-images is enabled:
-    - Images are extracted from Mistral OCR response (base64 encoded)
-    - Saved to disk as {pdf_name}_images/{image_id}.{ext}
-    - Markdown image links automatically rewritten to relative paths
-    - Supports: PNG, JPEG, GIF, WebP, BMP, TIFF formats
+    - Images saved to {pdf_name}_images/ directory (Mistral mode with --include-images)
 
 Requirements:
-    - mistralai: Mistral AI Python SDK
-    - python-dotenv: Environment variable management
-    - PyPDF2: PDF metadata reading
+    - nougat-ocr (default): Facebook's Nougat model + torch
+    - mistralai (optional): Mistral AI Python SDK + python-dotenv
+    - PyPDF2: PDF page extraction
     - rich: Terminal formatting and UI components
 
 Exit Codes:
     0: Success
-    1: Processing error (file not found, upload failed, OCR failed)
-    2: Configuration error (invalid arguments, missing API key)
+    1: Processing error
+    2: Configuration error
 
 Notes:
-    - PDF files are temporarily uploaded to Mistral's servers for processing
-    - Signed URLs expire after 1 minute for security
-    - Large PDFs may take longer to process
-    - Requires active internet connection
-    - API usage may incur costs based on Mistral's pricing
+    - Nougat: runs entirely locally, GPU strongly recommended, model weights (~2GB)
+      downloaded on first use. Model weights are CC BY-NC licensed (non-commercial).
+    - Mistral: requires internet, API key, and may incur costs.
 """
 
 import os
@@ -102,10 +75,10 @@ import base64
 import sys
 import re
 import io
+import tempfile
 from typing import Optional, Tuple, List, Any
 
 from dotenv import load_dotenv
-from mistralai import Mistral
 import PyPDF2
 from rich.console import Console
 from rich.panel import Panel
@@ -119,20 +92,34 @@ from rich.progress import (
 from rich.prompt import Confirm
 from rich.syntax import Syntax
 
+
 def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespace]:
     """Parses command-line arguments and validates the input path."""
     parser = argparse.ArgumentParser(
-        description="Convert a PDF to Markdown using Mistral OCR (no local fallback)."
+        description="Convert a PDF to Markdown using Nougat (local, default) or Mistral OCR (cloud, opt-in)."
     )
     parser.add_argument(
         "pdf_path",
         help="Path to the PDF file or a directory containing PDFs to be processed.",
     )
     parser.add_argument("-y", "--yes", action="store_true", help="Run non-interactively (assume Yes to prompts).")
-    parser.add_argument("--include-images", action="store_true", help="Include images from OCR, save to disk, and rewrite links in Markdown.")
     parser.add_argument("-o", "--output", help="Output Markdown file path (default: alongside PDF with .md).")
     parser.add_argument("--no-preview", action="store_true", help="Do not print Markdown preview after processing.")
     parser.add_argument("--pages", help="Page range to process (e.g., '1-5', '1,3,5'). 1-based indexing.")
+
+    parser.add_argument("--model", choices=["nougat", "mistral"], default="mistral",
+                        help="OCR engine: 'nougat' (local, default) or 'mistral' (cloud API).")
+
+    parser.add_argument("-b", "--batch-size", type=int, default=4,
+                        help="Batch size for Nougat inference (default: 4).")
+    parser.add_argument("--no-skipping", action="store_true",
+                        help="Disable Nougat failure-detection (use if you get [MISSING_PAGE]).")
+    parser.add_argument("--full-precision", action="store_true",
+                        help="Use float32 instead of bfloat16 (Nougat, can help on CPU).")
+
+    parser.add_argument("--include-images", action="store_true",
+                        help="Include images from Mistral OCR, save to disk, and rewrite links in Markdown.")
+
     args = parser.parse_args()
 
     if not os.path.exists(args.pdf_path):
@@ -156,6 +143,11 @@ def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespac
             "[bold red]Error:[/] When processing a directory, --output must be a directory path."
         )
         return None
+    if args.model == "nougat" and args.include_images:
+        console.print(
+            "[bold yellow]Warning:[/] --include-images is only supported with --model mistral. Ignored."
+        )
+        args.include_images = False
     return args
 
 
@@ -164,85 +156,69 @@ def parse_page_range(page_range_str: str) -> List[int]:
     pages = []
     if not page_range_str:
         return pages
-    
+
     parts = page_range_str.split(',')
     for part in parts:
         part = part.strip()
         if '-' in part:
             try:
                 start, end = map(int, part.split('-'))
-                # Convert 1-based to 0-based, inclusive end
                 pages.extend(range(start - 1, end))
             except ValueError:
                 continue
         else:
             try:
-                # Convert 1-based to 0-based
                 pages.append(int(part) - 1)
             except ValueError:
                 continue
     return sorted(list(set(pages)))
 
 
-def initialize_mistral_client(console: Console) -> Optional[Mistral]:
-    """Initializes and returns the Mistral client if API key is set."""
-    api_key = os.getenv("MISTRAL_API_KEY")
-    if not api_key:
-        console.print(
-            "[bold yellow]Warning:[/] MISTRAL_API_KEY environment variable not set. Mistral processing will be skipped."
-        )
-        return None
-    try:
-        return Mistral(api_key=api_key)
-    except Exception as e:
-        console.print(f"[bold red]Error initializing Mistral client:[/] {e}")
-        return None
-
-
-def get_pdf_details(
+def get_pdf_path_for_processing(
     pdf_path: str, console: Console, pages_arg: Optional[str] = None
-) -> Tuple[Optional[bytes], Optional[int]]:
-    """Reads PDF content (optionally filtered by page range) and gets the number of pages."""
+) -> Tuple[Optional[str], Optional[int]]:
+    """Returns the PDF path (possibly a temp file if page range specified) and page count.
+
+    When pages_arg is provided, a temporary PDF containing only the requested pages
+    is created. The caller is responsible for cleaning up the temp file (returned
+    filename indicates if cleanup is needed via a leading '!' marker).
+    """
     with console.status("[bold green]Reading PDF file...", spinner="dots"):
         try:
-            # If no pages specified, read the file directly
             if not pages_arg:
-                with open(pdf_path, "rb") as pdf_file_obj:
-                    pdf_content = pdf_file_obj.read()
-                # Re-open for PyPDF2 as it needs a seekable stream after full read
-                with open(pdf_path, "rb") as pdf_file_for_pypdf2:
-                    pdf_reader = PyPDF2.PdfReader(pdf_file_for_pypdf2)
+                with open(pdf_path, "rb") as f:
+                    pdf_reader = PyPDF2.PdfReader(f)
                     num_pages = len(pdf_reader.pages)
-                return pdf_content, num_pages
-            
-            # If pages ARE specified, extract them
+                return pdf_path, num_pages
+
             target_indices = parse_page_range(pages_arg)
             if not target_indices:
-                 console.print(f"[bold red]Error:[/] Invalid page range '{pages_arg}'.")
-                 return None, None
+                console.print(f"[bold red]Error:[/] Invalid page range '{pages_arg}'.")
+                return None, None
 
             output_pdf = PyPDF2.PdfWriter()
-            with open(pdf_path, "rb") as pdf_file_for_pypdf2:
-                pdf_reader = PyPDF2.PdfReader(pdf_file_for_pypdf2)
+            with open(pdf_path, "rb") as f:
+                pdf_reader = PyPDF2.PdfReader(f)
                 total_pages = len(pdf_reader.pages)
-                
+
                 added_count = 0
                 for idx in target_indices:
                     if 0 <= idx < total_pages:
                         output_pdf.add_page(pdf_reader.pages[idx])
                         added_count += 1
                     else:
-                        console.print(f"[yellow]Warning:[/] Page {idx + 1} is out of bounds (1-{total_pages}). Skipped.")
+                        console.print(
+                            f"[yellow]Warning:[/] Page {idx + 1} is out of bounds (1-{total_pages}). Skipped."
+                        )
 
                 if added_count == 0:
-                     console.print("[bold red]Error:[/] No valid pages selected.")
-                     return None, None
+                    console.print("[bold red]Error:[/] No valid pages selected.")
+                    return None, None
 
-                # Write the new PDF to bytes
-                pdf_bytes_io = io.BytesIO()
-                output_pdf.write(pdf_bytes_io)
-                pdf_bytes_io.seek(0)
-                return pdf_bytes_io.read(), added_count
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+                output_pdf.write(tmp)
+                tmp.close()
+                return tmp.name, added_count
 
         except Exception as e:
             console.print(
@@ -264,40 +240,158 @@ def display_pdf_info(pdf_filename: str, num_pages: int, console: Console):
 
 def confirm_and_configure_processing(
     num_pages: int, pdf_filename: str, console: Console, args: argparse.Namespace
-) -> Tuple[bool, bool]:
-    """Handles proceed/include-images decisions with support for non-interactive mode."""
+) -> bool:
+    """Asks user to proceed. Returns True to continue, False to skip."""
     if args.yes:
-        return True, bool(args.include_images)
+        return True
 
     proceed = Confirm.ask(
-        f"Do you want to proceed with processing {num_pages} pages of '{pdf_filename}'? (Y/n)",
+        f"Process {num_pages} pages of '{pdf_filename}' with [cyan]{args.model}[/]? (Y/n)",
         default=True,
         show_default=False,
     )
-    if not proceed:
-        return False, False
+    return bool(proceed)
 
-    include_mistral_images = (
-        args.include_images
-        if args.include_images
-        else Confirm.ask(
-            "Include images (base64 from Mistral), save to disk, and rewrite links? (y/N)",
-            default=False,
-            show_default=False,
+
+# --- Nougat (local) functions ---
+
+def initialize_nougat_model(console: Console, args: argparse.Namespace) -> Optional[dict]:
+    """Loads the Nougat model and processor from HuggingFace hub."""
+    import torch
+    from transformers import NougatProcessor, VisionEncoderDecoderModel
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype = torch.float32 if args.full_precision else torch.bfloat16
+    model_id = "facebook/nougat-base"
+
+    with console.status(f"[bold green]Loading Nougat ({model_id}) on {device}...", spinner="dots"):
+        try:
+            processor = NougatProcessor.from_pretrained(model_id)
+            model = VisionEncoderDecoderModel.from_pretrained(
+                model_id, torch_dtype=dtype
+            ).to(device)
+            model.eval()
+            console.print(f"[green]Nougat model and processor loaded on {device}.[/]")
+            return {"model": model, "processor": processor}
+        except Exception as e:
+            console.print(f"[bold red]Error loading Nougat model:[/] {e}")
+            return None
+
+
+def _render_pdf_to_images(pdf_path: str, console: Console) -> Optional[List["Image.Image"]]:
+    """Renders each page of a PDF to a PIL Image using pypdfium2."""
+    import pypdfium2
+    from PIL import Image  # noqa: F811
+
+    with console.status("[bold blue]Rendering PDF pages to images...", spinner="dots"):
+        try:
+            pdf = pypdfium2.PdfDocument(pdf_path)
+            images = []
+            for i in range(len(pdf)):
+                page = pdf.get_page(i)
+                bitmap = page.render(scale=2.0)
+                pil_image = bitmap.to_pil()
+                images.append(pil_image)
+            pdf.close()
+        except Exception as e:
+            console.print(f"[bold red]Error rendering PDF:[/] {e}")
+            return None
+    return images
+
+
+def process_nougat_ocr(
+    pdf_path: str, nougat: dict, console: Console, args: argparse.Namespace
+) -> Optional[List[str]]:
+    """Runs Nougat inference on a PDF, returning a list of page markdown strings."""
+    import torch
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = nougat["model"]
+    processor = nougat["processor"]
+
+    images = _render_pdf_to_images(pdf_path, console)
+    if not images:
+        return None
+
+    all_predictions: List[str] = []
+    num_batches = (len(images) + args.batch_size - 1) // args.batch_size
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task_id = progress.add_task(
+            "[bold green]Running Nougat inference...", total=num_batches
         )
-    )
-    console.print(
-        f"Images will {'[green]be included[/]' if include_mistral_images else '[yellow]not be included[/]'} in the output."
-    )
-    return True, bool(include_mistral_images)
+
+        bad_words_ids = [[processor.tokenizer.unk_token_id]] if not args.no_skipping else None
+
+        for batch_idx in range(0, len(images), args.batch_size):
+            batch_images = images[batch_idx:batch_idx + args.batch_size]
+            progress.update(
+                task_id,
+                advance=1,
+                description=f"[bold green]Nougat batch {batch_idx // args.batch_size + 1}/{num_batches}...",
+            )
+
+            try:
+                pixel_values = processor(
+                    images=batch_images, return_tensors="pt"
+                ).pixel_values.to(device=device, dtype=model.dtype)
+
+                with torch.no_grad():
+                    outputs = model.generate(
+                        pixel_values,
+                        min_length=1,
+                        max_new_tokens=model.config.decoder.max_position_embeddings,
+                        bad_words_ids=bad_words_ids,
+                        pad_token_id=processor.tokenizer.pad_token_id,
+                    )
+
+                batch_texts = processor.batch_decode(outputs, skip_special_tokens=True)
+                for text in batch_texts:
+                    text = processor.post_process_generation(text, fix_markdown=False)
+                    all_predictions.append(text)
+
+            except Exception as e:
+                console.print(
+                    f"[bold red]Nougat inference error at batch {batch_idx // args.batch_size + 1}:[/] {e}"
+                )
+                return None
+
+    return all_predictions
+
+
+# --- Mistral (cloud) functions ---
+
+def initialize_mistral_client(console: Console) -> Optional[Any]:
+    """Initializes and returns the Mistral client if API key is set."""
+    from mistralai import Mistral
+
+    api_key = os.getenv("MISTRAL_API_KEY")
+    if not api_key:
+        console.print("[bold red]Error:[/] MISTRAL_API_KEY not set. Cannot use --model mistral.")
+        return None
+    try:
+        return Mistral(api_key=api_key)
+    except Exception as e:
+        console.print(f"[bold red]Error initializing Mistral client:[/] {e}")
+        return None
 
 
 def upload_pdf_to_mistral(
-    client: Mistral, pdf_path: str, pdf_content: bytes, console: Console
+    client: Any, pdf_path: str, console: Console
 ) -> Optional[str]:
     """Uploads the PDF file to Mistral and returns the signed URL."""
     with console.status("[bold blue]Uploading PDF to Mistral...", spinner="dots"):
         try:
+            with open(pdf_path, "rb") as f:
+                pdf_content = f.read()
             uploaded_file = client.files.upload(
                 file={
                     "file_name": os.path.basename(pdf_path),
@@ -307,7 +401,7 @@ def upload_pdf_to_mistral(
             )
             signed_url_response = client.files.get_signed_url(
                 file_id=uploaded_file.id, expiry=1
-            )  # expiry in minutes
+            )
             return signed_url_response.url
         except Exception as e:
             console.print(f"[bold red]Error uploading PDF to Mistral:[/] {e}")
@@ -315,8 +409,8 @@ def upload_pdf_to_mistral(
 
 
 def process_ocr_with_mistral(
-    client: Mistral, document_url: str, include_image_base64: bool, console: Console
-) -> Optional[Any]:  # Using Any for Mistral's response type
+    client: Any, document_url: str, include_image_base64: bool, console: Console
+) -> Optional[Any]:
     """Processes the document URL with Mistral OCR."""
     with console.status("[bold blue]Processing OCR with Mistral...", spinner="dots"):
         try:
@@ -340,14 +434,12 @@ def _ext_from_b64_header(b64_data: str) -> str:
     try:
         if b64_data.startswith("data:"):
             header = b64_data.split(",", 1)[0]
-            # e.g., data:image/png;base64
             if ";" in header:
                 mime = header.split(":", 1)[1].split(";", 1)[0]
             else:
                 mime = header.split(":", 1)[1]
             if "/" in mime:
                 subtype = mime.split("/", 1)[1].lower()
-                # common normalizations
                 if subtype in {"jpeg", "jpg"}:
                     return ".jpg"
                 if subtype == "png":
@@ -365,7 +457,7 @@ def _save_image_from_base64_data(images_dir: str, image_id: str, b64_data: str, 
         os.makedirs(images_dir, exist_ok=True)
         ext = _ext_from_b64_header(b64_data)
         comma_index = b64_data.find(",")
-        b64_string = b64_data[comma_index + 1 :] if comma_index != -1 else b64_data
+        b64_string = b64_data[comma_index + 1:] if comma_index != -1 else b64_data
         image_bytes = base64.b64decode(b64_string)
         safe_id = _sanitize_filename(image_id)
         img_path = os.path.join(images_dir, safe_id + ext)
@@ -384,11 +476,7 @@ def extract_pages_content_and_save_images_mistral(
     images_dir: Optional[str],
     output_dir: Optional[str],
 ) -> List[str]:
-    """Extracts markdown from Mistral OCR pages and saves images if requested, with progress.
-
-    When include_image_base64 is True, images are saved under images_dir and markdown links
-    referencing image IDs are rewritten to relative file paths.
-    """
+    """Extracts markdown from Mistral OCR pages and saves images if requested, with progress."""
     all_markdown_parts: List[str] = []
     total_tasks = len(ocr_response.pages)
     if include_image_base64:
@@ -429,7 +517,6 @@ def extract_pages_content_and_save_images_mistral(
                         )
                         if saved:
                             rel_path = os.path.relpath(saved, start=output_dir)
-                            # Replace only in link targets: ](ID)
                             page_md = re.sub(
                                 rf"\]\({re.escape(image.id)}\)", f"]({rel_path})", page_md
                             )
@@ -438,6 +525,7 @@ def extract_pages_content_and_save_images_mistral(
 
 
 # --- Common Utility Functions ---
+
 def generate_output_filename(pdf_path: str) -> str:
     """Generates the output Markdown filename in the same directory as the PDF."""
     pdf_dir = os.path.dirname(os.path.abspath(pdf_path))
@@ -496,13 +584,13 @@ def process_single_pdf(
     output_md_filename: str,
     console: Console,
     args: argparse.Namespace,
-    mistral_client: Mistral,
+    nougat_model: Optional[Any],
+    mistral_client: Optional[Any],
     show_preview: bool,
 ) -> bool:
-    """Processes a single PDF and returns True on success."""
+    """Processes a single PDF with the selected model. Returns True on success."""
     output_dir = os.path.dirname(output_md_filename)
     pdf_stem = os.path.splitext(os.path.basename(pdf_path))[0]
-    images_dir = os.path.join(output_dir, f"{pdf_stem}_images") if args.include_images else None
 
     if os.path.exists(output_md_filename):
         console.print(
@@ -510,69 +598,75 @@ def process_single_pdf(
         )
         return True
 
-    pdf_content, num_pages = get_pdf_details(pdf_path, console, args.pages)
-    if pdf_content is None or num_pages is None:
+    pdf_path_to_use, num_pages = get_pdf_path_for_processing(pdf_path, console, args.pages)
+    if pdf_path_to_use is None or num_pages is None:
         return False
 
     pdf_filename_basename = os.path.basename(pdf_path)
     display_pdf_info(pdf_filename_basename, num_pages, console)
 
-    proceed, include_mistral_images_in_output = confirm_and_configure_processing(
-        num_pages, pdf_filename_basename, console, args
-    )
-    if not proceed:
+    if not confirm_and_configure_processing(num_pages, pdf_filename_basename, console, args):
         console.print("[yellow]Processing cancelled by user.[/]")
         return True
 
-    console.print("\n[cyan]Processing with Mistral OCR...[/]")
-    signed_url_str = upload_pdf_to_mistral(
-        mistral_client, pdf_path, pdf_content, console
-    )
-    if not signed_url_str:
-        console.print("[bold red]Failed to upload PDF to Mistral.[/]")
-        return False
-
-    ocr_response = process_ocr_with_mistral(
-        mistral_client,
-        signed_url_str,
-        include_mistral_images_in_output,
-        console,
-    )
-    if not ocr_response or not hasattr(ocr_response, "pages"):
-        console.print(
-            "[bold red]Mistral OCR processing failed or returned no pages.[/]"
-        )
-        return False
-
-    all_markdown_parts = extract_pages_content_and_save_images_mistral(
-        ocr_response,
-        include_mistral_images_in_output,
-        console,
-        images_dir=images_dir,
-        output_dir=output_dir,
-    )
-    final_markdown = "\n\n---\n\n".join(all_markdown_parts)
+    is_temp_file = pdf_path_to_use != pdf_path
+    temp_files_to_clean = [pdf_path_to_use] if is_temp_file else []
 
     try:
+        if args.model == "nougat":
+            console.print(f"\n[cyan]Processing with Nougat (local)...[/]")
+            all_markdown_parts = process_nougat_ocr(pdf_path_to_use, nougat_model, console, args)
+            if all_markdown_parts is None:
+                return False
+        else:
+            console.print(f"\n[cyan]Processing with Mistral OCR...[/]")
+            signed_url_str = upload_pdf_to_mistral(mistral_client, pdf_path_to_use, console)
+            if not signed_url_str:
+                console.print("[bold red]Failed to upload PDF to Mistral.[/]")
+                return False
+
+            ocr_response = process_ocr_with_mistral(
+                mistral_client,
+                signed_url_str,
+                args.include_images,
+                console,
+            )
+            if not ocr_response or not hasattr(ocr_response, "pages"):
+                console.print("[bold red]Mistral OCR processing failed or returned no pages.[/]")
+                return False
+
+            images_dir = os.path.join(output_dir, f"{pdf_stem}_images") if args.include_images else None
+            all_markdown_parts = extract_pages_content_and_save_images_mistral(
+                ocr_response,
+                args.include_images,
+                console,
+                images_dir=images_dir,
+                output_dir=output_dir,
+            )
+
+        final_markdown = "\n\n---\n\n".join(all_markdown_parts)
+
         os.makedirs(output_dir, exist_ok=True)
         save_markdown_to_file(final_markdown, output_md_filename)
-    except Exception as e:
-        console.print(
-            f"[bold red]Failed to write output file '{output_md_filename}':[/] {e}"
-        )
-        return False
 
-    display_results_summary(
-        output_md_filename, final_markdown, console, show_preview=show_preview
-    )
-    return True
+        display_results_summary(
+            output_md_filename, final_markdown, console, show_preview=show_preview
+        )
+        return True
+
+    finally:
+        for tmp in temp_files_to_clean:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 #
 # --- Main Orchestration Function ---
 #
 def main():
-    """Main function that orchestrates the PDF processing workflow (Mistral only)."""
+    """Main function that orchestrates the PDF processing workflow."""
     load_dotenv('/home/michael/gitrepos/ai-tools/.env')
     console = Console()
 
@@ -580,10 +674,19 @@ def main():
     if not args:
         sys.exit(2)
 
-    mistral_client = initialize_mistral_client(console)
-    if not mistral_client:
-        console.print("[bold red]Mistral client not available or configured.[/]")
-        sys.exit(2)
+    nougat_model = None
+    mistral_client = None
+
+    if args.model == "nougat":
+        nougat_model = initialize_nougat_model(console, args)
+        if not nougat_model:
+            console.print("[bold red]Failed to load Nougat model.[/]")
+            sys.exit(1)
+    else:
+        mistral_client = initialize_mistral_client(console)
+        if not mistral_client:
+            console.print("[bold red]Mistral client not available or configured.[/]")
+            sys.exit(2)
 
     try:
         pdf_files = collect_pdf_files(args.pdf_path)
@@ -623,6 +726,7 @@ def main():
                 output_md_filename=output_md_filename,
                 console=console,
                 args=args,
+                nougat_model=nougat_model,
                 mistral_client=mistral_client,
                 show_preview=(not args.no_preview) and not is_directory_mode,
             )
@@ -636,7 +740,7 @@ def main():
         console.print("[bold green]All processing completed successfully.[/]")
         sys.exit(0)
     except Exception as e:
-        console.print(f"[bold red]Unexpected error during Mistral processing:[/] {e}")
+        console.print(f"[bold red]Unexpected error during processing:[/] {e}")
         sys.exit(1)
 
 

@@ -44,6 +44,12 @@ pydub==0.25.1
 # GUI (used by audio_transcribe_gui.py)
 customtkinter==5.2.2
 
+# PDF OCR (used by pdf2md.py - default model)
+git+https://github.com/facebookresearch/nougat
+
+# PDF OCR (used by pdf2md.py --model mistral)
+mistralai>=1.0.0,<2.0.0
+
 # Image OCR (used by png2md.py)
 easyocr==1.7.2
 Pillow
