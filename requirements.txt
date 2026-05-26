@@ -6,8 +6,10 @@ eval_type_backport==0.2.2
 h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
+huggingface_hub[cli]==0.36.2
 idna==3.11
 invoke==2.2.1
+black==26.5.1
 markdown-it-py==4.0.0
 mdurl==0.1.2
 mistralai==1.9.11
@@ -40,6 +42,10 @@ numpy==2.2.2
 
 # Audio processing (used by mix_audio.py)
 pydub==0.25.1
+soundfile==0.13.1
+
+# Text-to-speech (used by md2audio.py)
+qwen-tts==0.1.1
 
 # GUI (used by audio_transcribe_gui.py)
 customtkinter==5.2.2

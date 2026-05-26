@@ -80,6 +80,25 @@ MISTRAL_API_KEY=your_mistral_api_key
     python tools/audio_transcribe.py -i audio.mp3 -o out.txt    # Batch file
     ```
 
+- `md2audio.py` — Markdown → narration WAV via local Qwen3-TTS CustomVoice
+  - Requires explicit `--language en` or `--language pt-br`
+  - Defaults to `models/Qwen3-TTS-12Hz-0.6B-CustomVoice`, speaker `ryan`, and output path `<input>.wav`
+  - Flags: `-o/--output`, `--language`, `--model`, `--speaker`, `--instruct`, `--device`,
+    `--chunk-chars`, `--batch-size`, `--dry-run`, `--keep-temp`, `--flash-attention`
+  - Reports elapsed time from model load through final WAV write, plus audio duration and realtime factor
+  - Manual setup:
+    ```bash
+    pip install -U qwen-tts soundfile torch
+    huggingface-cli download Qwen/Qwen3-TTS-Tokenizer-12Hz --local-dir models/Qwen3-TTS-Tokenizer-12Hz
+    huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+    ```
+  - If `qwen-tts` warns that SoX is missing, install the system binary with `sudo apt install sox`
+  - Example:
+    ```bash
+    python tools/md2audio.py article.md --language en --dry-run
+    python tools/md2audio.py article.md --language pt-br -o article.wav --batch-size 2
+    ```
+
 - `audio_transcribe_gui.py` — GUI for real-time audio transcription
   - Provides a customtkinter interface with model/language selection, recording controls, and clipboard copy.
   - Example:

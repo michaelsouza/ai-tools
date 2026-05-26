@@ -181,3 +181,15 @@ arXiv/arXiv-2501.12948v1/**
 arXiv/arXiv-2501.12948v1.tar.gz
 arXiv/arXiv-2412.19437v2.tar.gz
 .vscode/git_diff.txt
+
+# Local Qwen3-TTS models cache
+models/
+
+# Agent/Tool specific metadata and custom skills
+.agents/
+.antigravitycli/
+.claude/
+
+# Temporary and generated audio files
+tests/fixtures/*.wav
+tests/fixtures/*_chunks_*/
