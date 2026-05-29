@@ -451,21 +451,39 @@ def _ext_from_b64_header(b64_data: str) -> str:
         return ".png"
 
 
-def _save_image_from_base64_data(images_dir: str, image_id: str, b64_data: str, console: Console) -> Optional[str]:
+def _build_mistral_image_filename(
+    pdf_stem: str, page_number: int, image_number: int, b64_data: str
+) -> str:
+    """Builds a stable, readable image filename for a Mistral OCR image."""
+    ext = _ext_from_b64_header(b64_data)
+    safe_stem = _sanitize_filename(pdf_stem)
+    return f"{safe_stem}_p{page_number:03d}_img{image_number:03d}{ext}"
+
+
+def _strip_markdown_image_links(markdown: str) -> str:
+    """Removes standalone Markdown image links when image files are not saved."""
+    return re.sub(r"(?m)^[ \t]*!\[[^\]]*\]\([^)]+\)[ \t]*\n?", "", markdown)
+
+
+def _save_image_from_base64_data(
+    images_dir: str,
+    image_filename: str,
+    b64_data: str,
+    console: Console,
+) -> Optional[str]:
     """Decodes base64 image data and saves it to images_dir. Returns saved file path or None."""
     try:
         os.makedirs(images_dir, exist_ok=True)
-        ext = _ext_from_b64_header(b64_data)
         comma_index = b64_data.find(",")
         b64_string = b64_data[comma_index + 1:] if comma_index != -1 else b64_data
         image_bytes = base64.b64decode(b64_string)
-        safe_id = _sanitize_filename(image_id)
-        img_path = os.path.join(images_dir, safe_id + ext)
+        safe_filename = _sanitize_filename(image_filename)
+        img_path = os.path.join(images_dir, safe_filename)
         with open(img_path, "wb") as f:
             f.write(image_bytes)
         return img_path
     except Exception as img_e:
-        console.print(f"[bold red]Error processing and saving image {image_id}:[/] {img_e}")
+        console.print(f"[bold red]Error processing and saving image {image_filename}:[/] {img_e}")
         return None
 
 
@@ -475,6 +493,7 @@ def extract_pages_content_and_save_images_mistral(
     console: Console,
     images_dir: Optional[str],
     output_dir: Optional[str],
+    pdf_stem: str,
 ) -> List[str]:
     """Extracts markdown from Mistral OCR pages and saves images if requested, with progress."""
     all_markdown_parts: List[str] = []
@@ -504,16 +523,23 @@ def extract_pages_content_and_save_images_mistral(
             )
 
             page_md = page.markdown or ""
+            if not include_image_base64:
+                page_md = _strip_markdown_image_links(page_md)
+
             if include_image_base64 and getattr(page, "images", None):
-                for image in page.images:
+                page_number = getattr(page, "index", 0) + 1
+                for image_number, image in enumerate(page.images, start=1):
                     progress.update(
                         task_id,
                         advance=1,
                         description=f"[bold cyan]Saving image {image.id} (page {page.index + 1})...",
                     )
                     if images_dir and output_dir:
+                        image_filename = _build_mistral_image_filename(
+                            pdf_stem, page_number, image_number, image.image_base64
+                        )
                         saved = _save_image_from_base64_data(
-                            images_dir, image.id, image.image_base64, console
+                            images_dir, image_filename, image.image_base64, console
                         )
                         if saved:
                             rel_path = os.path.relpath(saved, start=output_dir)
@@ -642,6 +668,7 @@ def process_single_pdf(
                 console,
                 images_dir=images_dir,
                 output_dir=output_dir,
+                pdf_stem=pdf_stem,
             )
 
         final_markdown = "\n\n---\n\n".join(all_markdown_parts)
