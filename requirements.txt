@@ -1,5 +1,6 @@
 annotated-types==0.7.0
 anyio==4.11.0
+bibtexparser==1.4.4
 certifi==2025.10.5
 charset-normalizer==3.4.4
 eval_type_backport==0.2.2

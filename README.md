@@ -72,6 +72,17 @@ MISTRAL_API_KEY=your_mistral_api_key
     python tools/count_abstract_tokens.py references.bib
     ```
 
+- `merge_bib.py` — Merge two BibTeX files
+  - Keeps entries from the first file first, adds non-duplicates from the second file, and deduplicates by key, DOI, and normalized title by default.
+  - Same-key conflicts with different content are renamed by default using `_2`.
+  - Flags: `-o/--output`, `--dedupe-by`, `--on-key-conflict`, `--rename-suffix`, `--dry-run`
+  - Example:
+    ```bash
+    tools/merge_bib.py project_a.bib project_b.bib -o merged.bib
+    tools/merge_bib.py project_a.bib project_b.bib --dry-run
+    tools/merge_bib.py project_a.bib project_b.bib --on-key-conflict keep-first -o merged.bib
+    ```
+
 - `audio_transcribe.py` — Real-time or batch audio transcription via Faster-Whisper
   - Flags: `-i/--input`, `-o/--output`, `-m/--model`, `-d/--device`, `-l/--language`, `--timestamps`, `-v/--verbose`
   - Example:
