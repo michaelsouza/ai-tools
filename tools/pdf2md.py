@@ -76,6 +76,7 @@ import sys
 import re
 import io
 import tempfile
+from pathlib import Path
 from typing import Optional, Tuple, List, Any
 
 from dotenv import load_dotenv
@@ -91,6 +92,12 @@ from rich.progress import (
 )
 from rich.prompt import Confirm
 from rich.syntax import Syntax
+
+
+def load_environment_config():
+    """Load .env from the repository root."""
+    repo_env_path = Path(__file__).resolve().parent.parent / ".env"
+    load_dotenv(repo_env_path)
 
 
 def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespace]:
@@ -694,7 +701,7 @@ def process_single_pdf(
 #
 def main():
     """Main function that orchestrates the PDF processing workflow."""
-    load_dotenv('/home/michael/gitrepos/ai-tools/.env')
+    load_environment_config()
     console = Console()
 
     args = parse_and_validate_arguments(console)
