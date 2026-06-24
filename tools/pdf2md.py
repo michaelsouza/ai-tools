@@ -1,17 +1,17 @@
 #!/home/michael/gitrepos/ai-tools/.venv/bin/python
 """
-PDF to Markdown Converter using Nougat (local, default) or Mistral OCR (cloud, opt-in).
+PDF to Markdown Converter using Mistral OCR (cloud, default) or Nougat (local, opt-in).
 
-Default mode uses Facebook's Nougat model which runs entirely locally -- no data leaves
-your machine. Pass --model mistral to use Mistral's cloud OCR API instead (requires a
-MISTRAL_API_KEY in .env). Images are only available in Mistral mode (--include-images).
+Default mode uses Mistral's cloud OCR API (requires a MISTRAL_API_KEY in .env).
+Pass --model nougat to use Facebook's Nougat model locally instead. Images are only
+available in Mistral mode (--include-images).
 
 Usage:
-    # Basic conversion with default Nougat model
+    # Basic conversion with default Mistral OCR model
     python pdf2md.py document.pdf
 
-    # Use Mistral OCR instead
-    python pdf2md.py document.pdf --model mistral
+    # Use local Nougat instead
+    python pdf2md.py document.pdf --model nougat
 
     # Convert all PDFs in a directory
     python pdf2md.py ./pdfs
@@ -28,6 +28,10 @@ Usage:
     # Mistral-specific: include images
     python pdf2md.py document.pdf --model mistral --include-images
 
+    # Mistral OCR 4: preserve structured response metadata
+    python pdf2md.py document.pdf --model mistral --mistral-model mistral-ocr-4-0 \
+        --include-blocks --confidence-scores page --save-ocr-json
+
 Options:
     pdf_path             Path to the PDF file or directory to process (required)
     -y, --yes            Non-interactive mode - assume Yes to all prompts
@@ -37,7 +41,7 @@ Options:
 
 Model selection:
     --model {nougat,mistral}
-                         OCR engine to use (default: nougat). 'nougat' runs locally,
+                         OCR engine to use (default: mistral). 'nougat' runs locally,
                          'mistral' requires MISTRAL_API_KEY in .env.
 
 Nougat options (default model):
@@ -47,14 +51,22 @@ Nougat options (default model):
 
 Mistral options:
     --include-images     Extract images from PDF, save to disk, and rewrite markdown links
+    --mistral-model ID   Mistral OCR model ID (default: mistral-ocr-latest)
+    --table-format FMT   Extract tables separately as markdown or html
+    --extract-header     Return page headers in the OCR response
+    --extract-footer     Return page footers in the OCR response
+    --include-blocks     Return OCR 4 structural blocks and bounding boxes
+    --confidence-scores  Return page-level or word-level confidence scores
+    --save-ocr-json      Save the full Mistral OCR response next to the Markdown file
 
 Output:
     - Markdown file saved alongside PDF (or custom location)
     - Images saved to {pdf_name}_images/ directory (Mistral mode with --include-images)
+    - OCR JSON saved to {pdf_name}.ocr.json (Mistral mode with --save-ocr-json)
 
 Requirements:
-    - nougat-ocr (default): Facebook's Nougat model + torch
-    - mistralai (optional): Mistral AI Python SDK + python-dotenv
+    - mistralai (default): Mistral AI Python SDK + python-dotenv
+    - nougat-ocr (optional): Facebook's Nougat model + torch
     - PyPDF2: PDF page extraction
     - rich: Terminal formatting and UI components
 
@@ -72,11 +84,16 @@ Notes:
 import os
 import argparse
 import base64
+import json
 import sys
 import re
 import io
+import ssl
 import tempfile
+from pathlib import Path
 from typing import Optional, Tuple, List, Any
+from urllib import error as urlerror
+from urllib import request as urlrequest
 
 from dotenv import load_dotenv
 import PyPDF2
@@ -93,10 +110,20 @@ from rich.prompt import Confirm
 from rich.syntax import Syntax
 
 
+MISTRAL_OCR_ENDPOINT = "https://api.mistral.ai/v1/ocr"
+MISTRAL_OCR_DEFAULT_MODEL = "mistral-ocr-latest"
+
+
+def load_environment_config():
+    """Load .env from the repository root."""
+    repo_env_path = Path(__file__).resolve().parent.parent / ".env"
+    load_dotenv(repo_env_path)
+
+
 def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespace]:
     """Parses command-line arguments and validates the input path."""
     parser = argparse.ArgumentParser(
-        description="Convert a PDF to Markdown using Nougat (local, default) or Mistral OCR (cloud, opt-in)."
+        description="Convert a PDF to Markdown using Mistral OCR (cloud, default) or Nougat (local, opt-in)."
     )
     parser.add_argument(
         "pdf_path",
@@ -107,8 +134,12 @@ def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespac
     parser.add_argument("--no-preview", action="store_true", help="Do not print Markdown preview after processing.")
     parser.add_argument("--pages", help="Page range to process (e.g., '1-5', '1,3,5'). 1-based indexing.")
 
-    parser.add_argument("--model", choices=["nougat", "mistral"], default="mistral",
-                        help="OCR engine: 'nougat' (local, default) or 'mistral' (cloud API).")
+    parser.add_argument(
+        "--model",
+        choices=["nougat", "mistral"],
+        default="mistral",
+        help="OCR engine: 'nougat' (local) or 'mistral' (cloud API).",
+    )
 
     parser.add_argument("-b", "--batch-size", type=int, default=4,
                         help="Batch size for Nougat inference (default: 4).")
@@ -117,8 +148,50 @@ def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespac
     parser.add_argument("--full-precision", action="store_true",
                         help="Use float32 instead of bfloat16 (Nougat, can help on CPU).")
 
-    parser.add_argument("--include-images", action="store_true",
-                        help="Include images from Mistral OCR, save to disk, and rewrite links in Markdown.")
+    parser.add_argument(
+        "--include-images",
+        action="store_true",
+        help="Include images from Mistral OCR, save to disk, and rewrite links in Markdown.",
+    )
+    parser.add_argument(
+        "--mistral-model",
+        default=MISTRAL_OCR_DEFAULT_MODEL,
+        help=(
+            "Mistral OCR model ID to use with --model mistral "
+            f"(default: {MISTRAL_OCR_DEFAULT_MODEL})."
+        ),
+    )
+    parser.add_argument(
+        "--table-format",
+        choices=["none", "markdown", "html"],
+        default="none",
+        help="Mistral OCR table extraction format (default: none).",
+    )
+    parser.add_argument(
+        "--extract-header",
+        action="store_true",
+        help="Return page headers in the Mistral OCR response.",
+    )
+    parser.add_argument(
+        "--extract-footer",
+        action="store_true",
+        help="Return page footers in the Mistral OCR response.",
+    )
+    parser.add_argument(
+        "--include-blocks",
+        action="store_true",
+        help="Return OCR 4 structural blocks with bounding boxes in the Mistral OCR response.",
+    )
+    parser.add_argument(
+        "--confidence-scores",
+        choices=["page", "word"],
+        help="Return Mistral OCR confidence scores at page or word granularity.",
+    )
+    parser.add_argument(
+        "--save-ocr-json",
+        action="store_true",
+        help="Save the full raw Mistral OCR response next to the Markdown output.",
+    )
 
     args = parser.parse_args()
 
@@ -148,6 +221,26 @@ def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespac
             "[bold yellow]Warning:[/] --include-images is only supported with --model mistral. Ignored."
         )
         args.include_images = False
+    if args.model == "nougat":
+        mistral_only_flags = [
+            ("--table-format", args.table_format != "none"),
+            ("--extract-header", args.extract_header),
+            ("--extract-footer", args.extract_footer),
+            ("--include-blocks", args.include_blocks),
+            ("--confidence-scores", bool(args.confidence_scores)),
+            ("--save-ocr-json", args.save_ocr_json),
+        ]
+        ignored = [flag for flag, enabled in mistral_only_flags if enabled]
+        if ignored:
+            console.print(
+                f"[bold yellow]Warning:[/] {', '.join(ignored)} are only supported with --model mistral. Ignored."
+            )
+            args.table_format = "none"
+            args.extract_header = False
+            args.extract_footer = False
+            args.include_blocks = False
+            args.confidence_scores = None
+            args.save_ocr_json = False
     return args
 
 
@@ -408,18 +501,70 @@ def upload_pdf_to_mistral(
             return None
 
 
-def process_ocr_with_mistral(
-    client: Any, document_url: str, include_image_base64: bool, console: Console
-) -> Optional[Any]:
+def _create_https_context() -> ssl.SSLContext:
+    """Creates an HTTPS context using certifi when it is installed."""
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context()
+
+
+def build_mistral_ocr_payload(document_url: str, args: argparse.Namespace) -> dict:
+    """Builds the Mistral OCR request payload."""
+    payload = {
+        "model": args.mistral_model,
+        "document": {"type": "document_url", "document_url": document_url},
+        "include_image_base64": args.include_images,
+    }
+
+    if args.table_format != "none":
+        payload["table_format"] = args.table_format
+    if args.extract_header:
+        payload["extract_header"] = True
+    if args.extract_footer:
+        payload["extract_footer"] = True
+    if args.include_blocks:
+        payload["include_blocks"] = True
+    if args.confidence_scores:
+        payload["confidence_scores_granularity"] = args.confidence_scores
+
+    return payload
+
+
+def process_ocr_with_mistral(document_url: str, args: argparse.Namespace, console: Console) -> Optional[Any]:
     """Processes the document URL with Mistral OCR."""
+    api_key = os.getenv("MISTRAL_API_KEY")
+    if not api_key:
+        console.print("[bold red]Error:[/] MISTRAL_API_KEY not set. Cannot use --model mistral.")
+        return None
+
+    payload = build_mistral_ocr_payload(document_url, args)
     with console.status("[bold blue]Processing OCR with Mistral...", spinner="dots"):
         try:
-            response = client.ocr.process(
-                model="mistral-ocr-latest",
-                document={"type": "document_url", "document_url": document_url},
-                include_image_base64=include_image_base64,
+            request = urlrequest.Request(
+                MISTRAL_OCR_ENDPOINT,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                method="POST",
             )
-            return response
+            with urlrequest.urlopen(request, timeout=600, context=_create_https_context()) as response:
+                body = response.read().decode("utf-8")
+            return json.loads(body)
+        except urlerror.HTTPError as e:
+            error_detail = e.read().decode("utf-8", errors="replace")
+            console.print(
+                f"[bold red]Error during Mistral OCR processing:[/] HTTP {e.code}: {error_detail}"
+            )
+            return None
+        except urlerror.URLError as e:
+            console.print(f"[bold red]Error connecting to Mistral OCR:[/] {e}")
+            return None
         except Exception as e:
             console.print(f"[bold red]Error during Mistral OCR processing:[/] {e}")
             return None
@@ -462,7 +607,8 @@ def _build_mistral_image_filename(
 
 def _strip_markdown_image_links(markdown: str) -> str:
     """Removes standalone Markdown image links when image files are not saved."""
-    return re.sub(r"(?m)^[ \t]*!\[[^\]]*\]\([^)]+\)[ \t]*\n?", "", markdown)
+    stripped = re.sub(r"(?m)^[ \t]*!\[[^\]]*\]\([^)]+\)[ \t]*\n?", "", markdown)
+    return re.sub(r"\n{3,}", "\n\n", stripped)
 
 
 def _save_image_from_base64_data(
@@ -487,6 +633,18 @@ def _save_image_from_base64_data(
         return None
 
 
+def _get_ocr_field(value: Any, field_name: str, default: Any = None) -> Any:
+    """Reads a field from a Mistral SDK object or a raw JSON dictionary."""
+    if isinstance(value, dict):
+        return value.get(field_name, default)
+    return getattr(value, field_name, default)
+
+
+def _get_ocr_pages(ocr_response: Any) -> List[Any]:
+    pages = _get_ocr_field(ocr_response, "pages", [])
+    return pages or []
+
+
 def extract_pages_content_and_save_images_mistral(
     ocr_response: Any,
     include_image_base64: bool,
@@ -497,10 +655,11 @@ def extract_pages_content_and_save_images_mistral(
 ) -> List[str]:
     """Extracts markdown from Mistral OCR pages and saves images if requested, with progress."""
     all_markdown_parts: List[str] = []
-    total_tasks = len(ocr_response.pages)
+    pages = _get_ocr_pages(ocr_response)
+    total_tasks = len(pages)
     if include_image_base64:
-        for page in ocr_response.pages:
-            total_tasks += len(getattr(page, "images", []) or [])
+        for page in pages:
+            total_tasks += len(_get_ocr_field(page, "images", []) or [])
 
     with Progress(
         SpinnerColumn(),
@@ -515,36 +674,40 @@ def extract_pages_content_and_save_images_mistral(
             "[bold green]Processing Mistral OCR content...", total=total_tasks
         )
 
-        for page in ocr_response.pages:
+        for page in pages:
+            page_index = _get_ocr_field(page, "index", len(all_markdown_parts))
             progress.update(
                 task_id,
                 advance=1,
-                description=f"[bold green]Processing page {page.index + 1}/{len(ocr_response.pages)} (Mistral)...",
+                description=f"[bold green]Processing page {page_index + 1}/{len(pages)} (Mistral)...",
             )
 
-            page_md = page.markdown or ""
+            page_md = _get_ocr_field(page, "markdown", "") or ""
             if not include_image_base64:
                 page_md = _strip_markdown_image_links(page_md)
 
-            if include_image_base64 and getattr(page, "images", None):
-                page_number = getattr(page, "index", 0) + 1
-                for image_number, image in enumerate(page.images, start=1):
+            page_images = _get_ocr_field(page, "images", None)
+            if include_image_base64 and page_images:
+                page_number = page_index + 1
+                for image_number, image in enumerate(page_images, start=1):
+                    image_id = _get_ocr_field(image, "id", f"img-{image_number}")
+                    image_base64 = _get_ocr_field(image, "image_base64")
                     progress.update(
                         task_id,
                         advance=1,
-                        description=f"[bold cyan]Saving image {image.id} (page {page.index + 1})...",
+                        description=f"[bold cyan]Saving image {image_id} (page {page_number})...",
                     )
-                    if images_dir and output_dir:
+                    if images_dir and output_dir and image_base64:
                         image_filename = _build_mistral_image_filename(
-                            pdf_stem, page_number, image_number, image.image_base64
+                            pdf_stem, page_number, image_number, image_base64
                         )
                         saved = _save_image_from_base64_data(
-                            images_dir, image_filename, image.image_base64, console
+                            images_dir, image_filename, image_base64, console
                         )
                         if saved:
                             rel_path = os.path.relpath(saved, start=output_dir)
                             page_md = re.sub(
-                                rf"\]\({re.escape(image.id)}\)", f"]({rel_path})", page_md
+                                rf"\]\({re.escape(image_id)}\)", f"]({rel_path})", page_md
                             )
             all_markdown_parts.append(page_md)
     return all_markdown_parts
@@ -582,6 +745,19 @@ def save_markdown_to_file(final_markdown: str, output_filename: str):
     """Saves the final markdown content to a file."""
     with open(output_filename, "w", encoding="utf-8") as fd:
         fd.write(final_markdown)
+
+
+def generate_ocr_json_filename(output_md_filename: str) -> str:
+    """Generates the sidecar OCR JSON filename for a Markdown output path."""
+    output_path = Path(output_md_filename)
+    return str(output_path.with_suffix(".ocr.json"))
+
+
+def save_ocr_response_to_file(ocr_response: Any, output_json_filename: str):
+    """Saves the raw Mistral OCR response to a JSON file."""
+    with open(output_json_filename, "w", encoding="utf-8") as fd:
+        json.dump(ocr_response, fd, ensure_ascii=False, indent=2)
+        fd.write("\n")
 
 
 def display_results_summary(
@@ -645,21 +821,26 @@ def process_single_pdf(
             if all_markdown_parts is None:
                 return False
         else:
-            console.print(f"\n[cyan]Processing with Mistral OCR...[/]")
+            console.print(f"\n[cyan]Processing with Mistral OCR ({args.mistral_model})...[/]")
             signed_url_str = upload_pdf_to_mistral(mistral_client, pdf_path_to_use, console)
             if not signed_url_str:
                 console.print("[bold red]Failed to upload PDF to Mistral.[/]")
                 return False
 
             ocr_response = process_ocr_with_mistral(
-                mistral_client,
                 signed_url_str,
-                args.include_images,
+                args,
                 console,
             )
-            if not ocr_response or not hasattr(ocr_response, "pages"):
+            if not ocr_response or not _get_ocr_pages(ocr_response):
                 console.print("[bold red]Mistral OCR processing failed or returned no pages.[/]")
                 return False
+
+            if args.save_ocr_json:
+                ocr_json_filename = generate_ocr_json_filename(output_md_filename)
+                os.makedirs(os.path.dirname(ocr_json_filename), exist_ok=True)
+                save_ocr_response_to_file(ocr_response, ocr_json_filename)
+                console.print(f"[green]OCR JSON saved to [cyan]{ocr_json_filename}[/].")
 
             images_dir = os.path.join(output_dir, f"{pdf_stem}_images") if args.include_images else None
             all_markdown_parts = extract_pages_content_and_save_images_mistral(
@@ -694,7 +875,7 @@ def process_single_pdf(
 #
 def main():
     """Main function that orchestrates the PDF processing workflow."""
-    load_dotenv('/home/michael/gitrepos/ai-tools/.env')
+    load_environment_config()
     console = Console()
 
     args = parse_and_validate_arguments(console)
