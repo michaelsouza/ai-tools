@@ -3,12 +3,13 @@
 Merge two BibTeX files using bibtexparser.
 
 Default behavior:
-    - Keep entries from the first file first.
-    - Add non-duplicate entries from the second file.
+    - Keep existing entries from the second file first.
+    - Add non-duplicate entries from the first file.
     - Treat matching citation keys, DOIs, or normalized titles as duplicates.
-    - If the same key has different content, rename the second-file entry.
+    - If the same key has different content, rename the first-file entry before adding it.
 
 Usage:
+    tools/merge_bib.py base.bib extra.bib
     tools/merge_bib.py base.bib extra.bib -o merged.bib
     tools/merge_bib.py base.bib extra.bib --dry-run
     tools/merge_bib.py base.bib extra.bib --on-key-conflict keep-first
@@ -26,15 +27,15 @@ from bibtexparser.bibdatabase import BibDatabase
 from bibtexparser.bparser import BibTexParser
 from bibtexparser.bwriter import BibTexWriter
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 
-console = Console(stderr=True)
+error_console = Console(stderr=True)
 
 
 @dataclass
 class MergeResult:
     entries: List[Dict[str, str]]
+    added_entries: List[Dict[str, str]]
     added: int
     skipped_duplicates: int
     renamed_conflicts: int
@@ -110,6 +111,7 @@ def merge_entries(
     rename_suffix: str,
 ) -> MergeResult:
     merged: List[Dict[str, str]] = []
+    added_entries: List[Dict[str, str]] = []
     token_index: Dict[Tuple[str, str], Dict[str, str]] = {}
     key_index: Dict[str, Dict[str, str]] = {}
     added = 0
@@ -184,9 +186,12 @@ def merge_entries(
             continue
 
         index_entry(entry)
+        added_entries.append(entry)
         added += 1
 
-    return MergeResult(merged, added, skipped_duplicates, renamed_conflicts, replaced_conflicts, errors, warnings)
+    return MergeResult(
+        merged, added_entries, added, skipped_duplicates, renamed_conflicts, replaced_conflicts, errors, warnings
+    )
 
 
 def bibtex_text(entries: Sequence[Dict[str, str]]) -> str:
@@ -207,9 +212,13 @@ def write_bib(entries: Sequence[Dict[str, str]], output: Path) -> None:
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Merge two BibTeX files.")
-    parser.add_argument("first", type=Path, help="Base .bib file. Its entries are kept first.")
-    parser.add_argument("second", type=Path, help="Additional .bib file to merge into the base file.")
-    parser.add_argument("-o", "--output", type=Path, help="Output .bib path. Defaults to stdout.")
+    parser.add_argument("first", type=Path, help="Source .bib file. Missing entries are copied from here.")
+    parser.add_argument(
+        "second",
+        type=Path,
+        help="Target .bib file. Its existing entries are kept first and it is overwritten unless -o is set.",
+    )
+    parser.add_argument("-o", "--output", type=Path, help="Output .bib path. Defaults to the second .bib file.")
     parser.add_argument(
         "--dedupe-by",
         default="key,doi,title",
@@ -223,7 +232,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--rename-suffix", default="_2", help="Suffix used with --on-key-conflict rename.")
     parser.add_argument("--dry-run", action="store_true", help="Print a summary without writing output.")
-    parser.add_argument("--quiet", action="store_true", help="Only print errors and BibTeX stdout output.")
+    parser.add_argument("--quiet", action="store_true", help="Only print errors.")
     return parser.parse_args(argv)
 
 
@@ -245,25 +254,26 @@ def validate_args(args: argparse.Namespace) -> List[str]:
     return errors
 
 
-def print_summary(
-    result: MergeResult, first_count: int, second_count: int, output: Optional[Path], dry_run: bool
-) -> None:
+def print_summary(result: MergeResult, first_count: int, second_count: int, dry_run: bool) -> None:
     table = Table(title="BibTeX Merge Summary", show_header=True, header_style="bold magenta")
     table.add_column("Metric", style="cyan")
     table.add_column("Count", justify="right", style="green")
-    table.add_row("First file entries", str(first_count))
-    table.add_row("Second file entries", str(second_count))
+    table.add_row("Source file entries", str(first_count))
+    table.add_row("Target file entries", str(second_count))
     table.add_row("Merged entries", str(len(result.entries)))
-    table.add_row("Added from second file", str(result.added))
+    table.add_row("Added to target", str(result.added))
     table.add_row("Skipped duplicates", str(result.skipped_duplicates))
     table.add_row("Renamed key conflicts", str(result.renamed_conflicts))
     table.add_row("Replaced key conflicts", str(result.replaced_conflicts))
-    console.print(table)
-
     if dry_run:
-        console.print(Panel("Dry run only. No file was written.", title="Mode", border_style="yellow"))
-    elif output:
-        console.print(Panel(str(output), title="Output", border_style="green"))
+        table.add_row("Dry run", "yes")
+    Console(file=sys.stdout).print(table)
+
+
+def print_added_entries(entries: Sequence[Dict[str, str]]) -> None:
+    if not entries:
+        return
+    sys.stdout.write(bibtex_text(entries).rstrip() + "\n\n")
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -271,16 +281,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     validation_errors = validate_args(args)
     if validation_errors:
         for error in validation_errors:
-            console.print(f"[red]Error:[/] {error}")
+            error_console.print(f"[red]Error:[/] {error}")
         return 2
 
-    with console.status("[bold green]Reading BibTeX files...", spinner="dots"):
-        first_entries, first_errors = load_bib(args.first)
-        second_entries, second_errors = load_bib(args.second)
+    first_entries, first_errors = load_bib(args.first)
+    second_entries, second_errors = load_bib(args.second)
+    output_path = args.output or args.second
 
     result = merge_entries(
-        first_entries,
         second_entries,
+        first_entries,
         args.dedupe_modes,
         args.on_key_conflict,
         args.rename_suffix,
@@ -289,12 +299,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     result.errors.extend(second_errors)
 
     if not args.quiet:
-        print_summary(result, len(first_entries), len(second_entries), args.output, args.dry_run)
+        print_added_entries(result.added_entries)
+        print_summary(result, len(first_entries), len(second_entries), args.dry_run)
         for warning in result.warnings:
-            console.print(f"[yellow]Warning:[/] {warning}")
+            error_console.print(f"[yellow]Warning:[/] {warning}")
 
     for error in result.errors:
-        console.print(f"[red]Error:[/] {error}")
+        error_console.print(f"[red]Error:[/] {error}")
 
     if result.errors:
         return 1
@@ -302,10 +313,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.dry_run:
         return 0
 
-    if args.output:
-        write_bib(result.entries, args.output)
-    else:
-        sys.stdout.write(bibtex_text(result.entries))
+    write_bib(result.entries, output_path)
 
     return 0
 

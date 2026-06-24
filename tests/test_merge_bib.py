@@ -1,8 +1,10 @@
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
-from tools.merge_bib import bibtex_text, load_bib, merge_entries
+from tools.merge_bib import bibtex_text, load_bib, main, merge_entries
 
 
 class MergeBibTests(unittest.TestCase):
@@ -61,6 +63,62 @@ class MergeBibTests(unittest.TestCase):
         self.assertEqual([entry["ID"] for entry in result.entries], ["smith2020", "smith2020_b"])
         self.assertIn("@article{smith2020_b,", bibtex_text([result.entries[1]]))
         self.assertEqual(result.renamed_conflicts, 1)
+
+    def test_default_output_is_second_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = Path(tmpdir) / "project_a.bib"
+            second = Path(tmpdir) / "project_b.bib"
+            first.write_text(
+                """@article{one,
+  title = {First Paper}
+}
+""",
+                encoding="utf-8",
+            )
+            second.write_text(
+                """@article{two,
+  title = {Second Paper}
+}
+""",
+                encoding="utf-8",
+            )
+
+            exit_code = main([str(first), str(second), "--quiet"])
+
+            self.assertEqual(exit_code, 0)
+            merged = second.read_text(encoding="utf-8")
+            self.assertIn("@article{one,", merged)
+            self.assertIn("@article{two,", merged)
+
+    def test_stdout_prints_added_entries_before_statistics(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = Path(tmpdir) / "project_a.bib"
+            second = Path(tmpdir) / "project_b.bib"
+            first.write_text(
+                """@article{one,
+  title = {First Paper}
+}
+""",
+                encoding="utf-8",
+            )
+            second.write_text(
+                """@article{two,
+  title = {Second Paper}
+}
+""",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main([str(first), str(second)])
+
+            output = stdout.getvalue()
+            self.assertEqual(exit_code, 0)
+            self.assertIn("@article{one,", output)
+            self.assertNotIn("@article{two,", output)
+            self.assertIn("BibTeX Merge Summary", output)
+            self.assertLess(output.index("@article{one,"), output.index("BibTeX Merge Summary"))
 
 
 if __name__ == "__main__":
