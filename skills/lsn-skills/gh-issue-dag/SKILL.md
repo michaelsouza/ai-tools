@@ -5,30 +5,44 @@ description: List open GitHub issues that are currently executable because every
 
 # GitHub Issue DAG
 
-Determine the open issue frontier from GitHub's formal dependency graph by
-running the bundled Python script. Treat an issue as unblocked when it is open
-and none of the issues returned by GitHub's native `blocked_by` endpoint are
-open.
+Determine the open issue frontier from GitHub's formal dependency graph by running the bundled Python script. Treat an issue as unblocked when it is open and none of the issues returned by GitHub's native `blocked_by` endpoint are open.
+
+## Requirements
+
+- Authenticated GitHub CLI (`gh auth status`).
+- Read access to the target repository.
 
 ## Run
 
-From any directory inside the target repository, run:
+Execute the script by replacing `<skill-directory>` with the absolute path to this skill's root folder:
 
 ```bash
 python3 <skill-directory>/scripts/list_unblocked_issues.py
 ```
 
-Pass `--repo OWNER/REPO` when the current directory is not in the target
-repository. Pass `--json` when machine-readable output is useful.
+### Options
 
-The script requires an authenticated `gh` CLI and read access to the repository.
-If GitHub's dependency endpoint cannot be queried, report the error instead of
-assuming that the affected issue has no blockers.
+- `--repo OWNER/REPO`: Specify target repository if current working directory is outside the target repo.
+- `--json`: Output raw JSON data for machine consumption.
+
+> **Note:** If GitHub's dependency endpoint cannot be queried (e.g. permission or API errors), report the explicit failure instead of assuming the issue has no blockers.
 
 ## Report
 
-Report the unblocked issues with their numbers, titles, and URLs. State that the
-result uses formal GitHub `blocked_by` relationships and includes parent/spec
-issues when they themselves have no open blockers. Do not silently exclude an
-issue based on labels, issue-body references, parent/sub-issue relationships, or
-whether it appears executable; apply such filtering only when the user asks.
+Report all unblocked issues containing their issue numbers, titles, and direct URLs.
+
+State explicitly that the result relies solely on formal GitHub `blocked_by` relationships and includes parent/spec issues if they have no open blockers.
+
+**Strict rules:**
+- Do **not** infer dependencies from issue text, comments, or informal mentions.
+- Do **not** silently exclude issues based on labels, sub-issue status, or perceived executability unless explicitly requested by the user.
+
+### Example Output Format
+
+```markdown
+### 🚀 Unblocked Issue Frontier
+- [#101 - Refactor auth service](https://github.com/owner/repo/issues/101)
+- [#104 - Update API specs](https://github.com/owner/repo/issues/104)
+
+*Note: Filtered based strictly on GitHub formal `blocked_by` status.*
+```
