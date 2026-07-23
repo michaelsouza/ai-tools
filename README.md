@@ -141,3 +141,9 @@ MISTRAL_API_KEY=your_mistral_api_key
     ```bash
     python tools/mix_audio.py -o mixed.wav track1.wav:0 track2.wav:-3 track3.wav:+2
     ```
+
+## Documentation
+
+- [Guia de Boas Práticas e Avaliação de Skills (Evals)](docs/skills_best_practices_and_evals.md) — Boas práticas de autoria e framework de evals para skills de IA (baseado em Philipp Schmid / Google DeepMind).
+- [Claude Skills Reference](docs/claude_skills.md) — Referência estendida para criação e uso de skills no Claude Code.
+
