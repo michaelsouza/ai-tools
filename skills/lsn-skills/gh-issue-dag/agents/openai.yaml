@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub Issue DAG"
+  short_description: "List open issues with no active blockers"
+  default_prompt: "Use $gh-issue-dag to list the open, formally unblocked issues in this repository."
