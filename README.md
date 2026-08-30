@@ -18,9 +18,14 @@ MISTRAL_API_KEY=your_mistral_api_key
 
 ## Tools
 
-- `pdf2md.py` — PDF → Markdown via Mistral OCR
+- `pdf2md.py` — PDF → Markdown via Mistral OCR (cloud) or local engines
   - Accepts either a single PDF file or a directory containing PDFs
-  - Flags: `-y/--yes`, `--include-images`, `-o/--output`, `--no-preview`, `--pages`
+  - Engines (`--model`): `mistral` (default, cloud), `dots` (local, best quality —
+    on par with Mistral for math), `paddle` (local, fastest), `nougat` (legacy).
+    Local engines need a running server: `tools/ocr_server.sh start {dots|paddle}`.
+    Setup and benchmarks: [docs/local_ocr.md](docs/local_ocr.md)
+  - Flags: `-y/--yes`, `--include-images`, `-o/--output`, `--no-preview`, `--pages`,
+    `--server-url` (local engines)
   - Mistral OCR 4 flags: `--mistral-model`, `--include-blocks`, `--confidence-scores`,
     `--table-format`, `--extract-header`, `--extract-footer`, `--save-ocr-json`
   - Example:
@@ -29,6 +34,7 @@ MISTRAL_API_KEY=your_mistral_api_key
     python tools/pdf2md.py ./pdfs --yes
     python tools/pdf2md.py file.pdf --pages 1-5 -o excerpt.md
     python tools/pdf2md.py file.pdf --yes --mistral-model mistral-ocr-4-0 --include-blocks --save-ocr-json
+    tools/ocr_server.sh start dots && python tools/pdf2md.py paper.pdf --model dots -y
     ```
   - If `--include-images`, images save to `<output_dir>/<pdf_stem>_images/` and links are rewritten.
   - If `--save-ocr-json`, the full OCR response saves to `<pdf_stem>.ocr.json`.

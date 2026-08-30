@@ -1,16 +1,26 @@
 #!/home/michael/gitrepos/ai-tools/.venv/bin/python
 """
-PDF to Markdown Converter using Mistral OCR (cloud, default) or Nougat (local, opt-in).
+PDF to Markdown Converter using Mistral OCR (cloud, default) or a local engine.
 
 Default mode uses Mistral's cloud OCR API (requires a MISTRAL_API_KEY in .env).
-Pass --model nougat to use Facebook's Nougat model locally instead. Images are only
-available in Mistral mode (--include-images).
+Local engines (see docs/local_ocr.md for benchmarks and setup):
+    --model dots     dots.ocr via a local vLLM server (best local quality; on par
+                     with Mistral for math formulas). Start with:
+                         tools/ocr_server.sh start dots
+    --model paddle   PaddleOCR-VL 1.6 via llama.cpp (fastest local). Start with:
+                         tools/ocr_server.sh start paddle
+    --model nougat   Facebook Nougat (legacy; CC BY-NC, kept for comparison).
+Images are only available in Mistral mode (--include-images).
 
 Usage:
     # Basic conversion with default Mistral OCR model
     python pdf2md.py document.pdf
 
-    # Use local Nougat instead
+    # Use a local engine (start its server first: tools/ocr_server.sh start dots)
+    python pdf2md.py document.pdf --model dots
+    python pdf2md.py document.pdf --model paddle
+
+    # Use local Nougat instead (legacy)
     python pdf2md.py document.pdf --model nougat
 
     # Convert all PDFs in a directory
@@ -40,9 +50,12 @@ Options:
     --pages PAGES        Page range to process (e.g., '1-5', '1,3,5'). 1-based indexing.
 
 Model selection:
-    --model {nougat,mistral}
-                         OCR engine to use (default: mistral). 'nougat' runs locally,
-                         'mistral' requires MISTRAL_API_KEY in .env.
+    --model {mistral,dots,paddle,nougat}
+                         OCR engine to use (default: mistral). 'dots', 'paddle' and
+                         'nougat' run locally; 'mistral' requires MISTRAL_API_KEY in .env.
+    --server-url URL     Base URL of the local inference server for --model dots
+                         (default: http://127.0.0.1:8092/v1) or --model paddle
+                         (default: http://127.0.0.1:8091/v1).
 
 Nougat options (default model):
     -b, --batch-size N   Batch size for inference (default: 4; increase if you have VRAM)
@@ -113,6 +126,12 @@ from rich.syntax import Syntax
 MISTRAL_OCR_ENDPOINT = "https://api.mistral.ai/v1/ocr"
 MISTRAL_OCR_DEFAULT_MODEL = "mistral-ocr-latest"
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DOTS_OCR_DEFAULT_URL = "http://127.0.0.1:8092/v1"
+DOTS_OCR_PROMPT = "Extract the text content from this image."
+PADDLE_VL_DEFAULT_URL = "http://127.0.0.1:8091/v1"
+PADDLEOCR_BIN_DEFAULT = str(REPO_ROOT / ".venv-paddle" / "bin" / "paddleocr")
+
 
 def load_environment_config():
     """Load .env from the repository root."""
@@ -136,9 +155,17 @@ def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespac
 
     parser.add_argument(
         "--model",
-        choices=["nougat", "mistral"],
+        choices=["mistral", "dots", "paddle", "nougat"],
         default="mistral",
-        help="OCR engine: 'nougat' (local) or 'mistral' (cloud API).",
+        help="OCR engine: 'mistral' (cloud API), 'dots'/'paddle'/'nougat' (local).",
+    )
+    parser.add_argument(
+        "--server-url",
+        help=(
+            "Base URL of the local inference server for --model dots "
+            f"(default: {DOTS_OCR_DEFAULT_URL}) or --model paddle "
+            f"(default: {PADDLE_VL_DEFAULT_URL})."
+        ),
     )
 
     parser.add_argument("-b", "--batch-size", type=int, default=4,
@@ -216,12 +243,12 @@ def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespac
             "[bold red]Error:[/] When processing a directory, --output must be a directory path."
         )
         return None
-    if args.model == "nougat" and args.include_images:
+    if args.model != "mistral" and args.include_images:
         console.print(
             "[bold yellow]Warning:[/] --include-images is only supported with --model mistral. Ignored."
         )
         args.include_images = False
-    if args.model == "nougat":
+    if args.model != "mistral":
         mistral_only_flags = [
             ("--table-format", args.table_format != "none"),
             ("--extract-header", args.extract_header),
@@ -713,6 +740,121 @@ def extract_pages_content_and_save_images_mistral(
     return all_markdown_parts
 
 
+# --- Local server engines (dots.ocr via vLLM, PaddleOCR-VL via llama.cpp) ---
+
+def check_local_server(base_url: str, engine: str, console: Console) -> bool:
+    """Checks the health endpoint of a local OCR inference server."""
+    health_url = base_url.rsplit("/v1", 1)[0] + "/health"
+    try:
+        with urlrequest.urlopen(health_url, timeout=5):
+            return True
+    except Exception:
+        console.print(
+            f"[bold red]Error:[/] no local server for --model {engine} at [cyan]{base_url}[/].\n"
+            f"Start it with: [cyan]tools/ocr_server.sh start {engine}[/]"
+        )
+        return False
+
+
+def process_dots_ocr(
+    pdf_path: str, console: Console, args: argparse.Namespace
+) -> Optional[List[str]]:
+    """Runs dots.ocr through a local vLLM OpenAI-compatible server, page by page."""
+    base_url = args.server_url or DOTS_OCR_DEFAULT_URL
+    images = _render_pdf_to_images(pdf_path, console)
+    if not images:
+        return None
+
+    all_markdown_parts: List[str] = []
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task_id = progress.add_task("[bold green]Running dots.ocr...", total=len(images))
+        for page_number, image in enumerate(images, start=1):
+            progress.update(
+                task_id,
+                advance=1,
+                description=f"[bold green]dots.ocr page {page_number}/{len(images)}...",
+            )
+            buffer = io.BytesIO()
+            image.save(buffer, "PNG")
+            image_b64 = base64.b64encode(buffer.getvalue()).decode()
+            payload = {
+                "model": "dots-ocr",
+                "temperature": 0,
+                "max_tokens": 4500,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/png;base64,{image_b64}"},
+                            },
+                            {"type": "text", "text": DOTS_OCR_PROMPT},
+                        ],
+                    }
+                ],
+            }
+            try:
+                request = urlrequest.Request(
+                    f"{base_url}/chat/completions",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlrequest.urlopen(request, timeout=600) as response:
+                    body = json.loads(response.read().decode("utf-8"))
+                all_markdown_parts.append(body["choices"][0]["message"]["content"])
+            except Exception as e:
+                console.print(f"[bold red]dots.ocr error on page {page_number}:[/] {e}")
+                return None
+    return all_markdown_parts
+
+
+def process_paddle_ocr(
+    pdf_path: str, console: Console, args: argparse.Namespace
+) -> Optional[List[str]]:
+    """Runs the PaddleOCR-VL doc_parser pipeline against a local llama.cpp server."""
+    import subprocess
+
+    base_url = args.server_url or PADDLE_VL_DEFAULT_URL
+    paddleocr_bin = os.getenv("PADDLEOCR_BIN", PADDLEOCR_BIN_DEFAULT)
+    if not os.path.exists(paddleocr_bin):
+        console.print(
+            f"[bold red]Error:[/] paddleocr CLI not found at [cyan]{paddleocr_bin}[/] "
+            "(set PADDLEOCR_BIN or create .venv-paddle; see docs/local_ocr.md)."
+        )
+        return None
+
+    with tempfile.TemporaryDirectory(prefix="paddleocr_vl_") as tmp_dir:
+        cmd = [
+            paddleocr_bin,
+            "doc_parser",
+            "-i", pdf_path,
+            "--pipeline_version", "v1.6",
+            "--vl_rec_backend", "llama-cpp-server",
+            "--vl_rec_server_url", base_url,
+            "--save_path", tmp_dir,
+        ]
+        with console.status("[bold blue]Running PaddleOCR-VL...", spinner="dots"):
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+        markdown_files = sorted(Path(tmp_dir).rglob("*.md"))
+        if not markdown_files:
+            console.print("[bold red]PaddleOCR-VL produced no Markdown output.[/]")
+            if result.stderr:
+                console.print(result.stderr.strip().splitlines()[-1])
+            return None
+        return [f.read_text(encoding="utf-8") for f in markdown_files]
+
+
 # --- Common Utility Functions ---
 
 def generate_output_filename(pdf_path: str) -> str:
@@ -820,6 +962,16 @@ def process_single_pdf(
             all_markdown_parts = process_nougat_ocr(pdf_path_to_use, nougat_model, console, args)
             if all_markdown_parts is None:
                 return False
+        elif args.model == "dots":
+            console.print(f"\n[cyan]Processing with dots.ocr (local vLLM)...[/]")
+            all_markdown_parts = process_dots_ocr(pdf_path_to_use, console, args)
+            if all_markdown_parts is None:
+                return False
+        elif args.model == "paddle":
+            console.print(f"\n[cyan]Processing with PaddleOCR-VL (local llama.cpp)...[/]")
+            all_markdown_parts = process_paddle_ocr(pdf_path_to_use, console, args)
+            if all_markdown_parts is None:
+                return False
         else:
             console.print(f"\n[cyan]Processing with Mistral OCR ({args.mistral_model})...[/]")
             signed_url_str = upload_pdf_to_mistral(mistral_client, pdf_path_to_use, console)
@@ -890,6 +1042,12 @@ def main():
         if not nougat_model:
             console.print("[bold red]Failed to load Nougat model.[/]")
             sys.exit(1)
+    elif args.model == "dots":
+        if not check_local_server(args.server_url or DOTS_OCR_DEFAULT_URL, "dots", console):
+            sys.exit(2)
+    elif args.model == "paddle":
+        if not check_local_server(args.server_url or PADDLE_VL_DEFAULT_URL, "paddle", console):
+            sys.exit(2)
     else:
         mistral_client = initialize_mistral_client(console)
         if not mistral_client:

@@ -137,6 +137,11 @@ ENV/
 env.bak/
 venv.bak/
 
+# Local OCR engine environments and server runtime (see docs/local_ocr.md)
+.venv-vllm/
+.venv-paddle/
+.ocr-servers/
+
 # Spyder project settings
 .spyderproject
 .spyproject
