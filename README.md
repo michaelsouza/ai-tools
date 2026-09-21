@@ -62,12 +62,12 @@ OPENROUTER_API_KEY=your_openrouter_api_key
     python tools/html2png.py diagram.html output.png -s 3
     ```
 
-- `generate_flowchart.py` — Source code → flowchart PNG (Python, C, C++)
+- `flowchart.py` — Source code → flowchart PNG (Python, C, C++)
   - Analyzes function calls and generates a call graph using Graphviz.
   - Flags: `--no-images`, `--json`, `--svg`, `--print-dot`
   - Example:
     ```bash
-    python tools/generate_flowchart.py script.py --svg
+    python tools/flowchart.py script.py --svg
     ```
 
 - `count_tokens.py` — Token counts for files/dirs
@@ -75,12 +75,6 @@ OPENROUTER_API_KEY=your_openrouter_api_key
   - Example:
     ```bash
     python tools/count_tokens.py . -e cl100k_base
-    ```
-
-- `count_abstract_tokens.py` — Token counts for BibTeX abstract fields
-  - Example:
-    ```bash
-    python tools/count_abstract_tokens.py references.bib
     ```
 
 - `merge_bib.py` — Merge two BibTeX files
