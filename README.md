@@ -1,6 +1,6 @@
 # AI Tools
 
-CLI helpers for PDFs, web pages, audio, and token counts.
+CLI helpers for PDFs, web pages, audio, bibliography, and token counts.
 
 ## Install
 ```bash
@@ -11,9 +11,10 @@ playwright install chromium
 ```
 
 ## Configure
-Create `.env` in repo root for Mistral OCR:
+Create `.env` in repo root for Mistral OCR and OpenRouter (`scopus_rank.py`):
 ```bash
 MISTRAL_API_KEY=your_mistral_api_key
+OPENROUTER_API_KEY=your_openrouter_api_key
 ```
 
 ## Tools
@@ -91,6 +92,62 @@ MISTRAL_API_KEY=your_mistral_api_key
     tools/merge_bib.py project_a.bib project_b.bib -o merged.bib
     tools/merge_bib.py project_a.bib project_b.bib --dry-run
     tools/merge_bib.py project_a.bib project_b.bib --on-key-conflict keep-first -o merged.bib
+    ```
+
+- `scopus_rank.py` — Rank a Scopus CSV export against a research topic with Jev (OpenRouter)
+  - Jev (`~typesafe/jev-latest`) is a decision model, not a text LLM: it cannot write a justification.
+    For each reference it receives a state (topic, title, abstract, keywords, year, source) plus the typed
+    questions of a screening profile and returns typed answers with probabilities. One request per
+    reference answers all questions; ~650 input tokens each at US$ 0.042 / 1M tokens (5,000 references
+    ≈ US$ 0.15). Needs `OPENROUTER_API_KEY` with credits (no free tier).
+  - Workflow:
+    1. Run the query in Scopus and export as **CSV**, ticking abstract and keywords besides the citation fields.
+    2. Copy [docs/scopus_rank_profile.example.json](docs/scopus_rank_profile.example.json) and edit it (see below).
+    3. `--dry-run` to inspect one payload and the token/cost estimate (no network).
+    4. `--limit 20` to check that the top of the ranking makes sense; adjust the profile and repeat.
+    5. Run on the full CSV.
+  - Screening profile (JSON):
+    ```json
+    {
+      "topic": "free-text description of the research: what is in scope and what is not",
+      "rank_by": "relevance",
+      "questions": {
+        "relevance": {"type": "score", "instructions": "How relevant is this reference to research_topic?",
+                      "criteria": ["unrelated: ...", "marginal: ...", "related: ...", "close: ...", "core: ..."]},
+        "proposes_method": {"type": "noul", "instructions": "Does the reference propose an algorithm for research_topic?"},
+        "kind": {"type": "choice", "instructions": "Main contribution?",
+                 "criteria": {"theory": "...", "algorithm": "...", "application": "...", "other": "..."}}
+      }
+    }
+    ```
+    - `topic` is sent in the state as `research_topic`; refer to it by that name in the instructions.
+    - `score`: `criteria` is an **ordered list** of levels, worst to best. The answer is the expected level
+      index, a continuous value in `[0, levels - 1]` (0–4 with five levels). The level descriptions are the
+      only rubric the model sees. Three levels tend to saturate and produce ties; five gave a usable spread.
+    - `noul`: yes/no question, no `criteria`. The answer is P(yes) in `[0, 1]`.
+    - `choice`: `criteria` is an object `label: description`. The answer is the chosen label.
+    - `rank_by` names the `score` or `noul` question that orders the output.
+  - Output: `<stem>.ranked.csv` (or `-o`) = original CSV preceded by `jev_rank` and one `jev_<question>` column
+    per question, plus `jev_<question>_conf` (confidence) and, for `choice`, `jev_<question>_p` (probability of
+    the chosen label). Sorted by the `rank_by` column, descending; ties broken by `Cited by`; references that
+    failed go last. Citations never enter the score. A summary table shows the top 15, the score
+    distribution, and tokens/cost actually billed.
+  - Cache: answers are appended to `<stem>.jev.jsonl` next to the input CSV, keyed by EID → DOI → normalized
+    title. Re-running only requests what is missing, so an interrupted or partially failed run (exit code 1)
+    is resumed by running the same command again. Changing the topic, the questions or `--model` invalidates
+    the cache. Duplicate references in the CSV are requested once.
+  - References without abstract are scored from title and keywords only (`no_abstract: true` in the state);
+    expect lower confidence for them.
+  - Flags: `--profile` (required), `-o/--output`, `--model` (default `~typesafe/jev-latest`),
+    `--workers` (default 8), `--limit N`, `--dry-run`, `--no-cache`
+  - Exit codes: `0` ok, `1` some references could not be scored, `2` configuration error.
+  - The OpenRouter decisions endpoint (`/api/alpha/decisions`) is alpha and may change; response parsing is
+    isolated in `parse_answers`.
+  - Example:
+    ```bash
+    tools/scopus_rank.py scopus.csv --profile profile.json --dry-run
+    tools/scopus_rank.py scopus.csv --profile profile.json --limit 20
+    tools/scopus_rank.py scopus.csv --profile profile.json -o ranked.csv --workers 16
     ```
 
 - `audio_transcribe.py` — Real-time or batch audio transcription via Faster-Whisper

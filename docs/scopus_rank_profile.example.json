@@ -1,0 +1,35 @@
+{
+  "topic": "Algorithms for the molecular distance geometry problem (MDGP/DMDGP): branch-and-prune, symmetries, interval distances, and applications to protein structure determination from NMR data.",
+  "rank_by": "relevance",
+  "questions": {
+    "relevance": {
+      "type": "score",
+      "instructions": "How relevant is this reference to the research_topic in the state?",
+      "criteria": [
+        "unrelated: different field",
+        "marginal: shares only generic vocabulary with the topic",
+        "related: neighbouring area or technique, does not address the topic's problem",
+        "close: addresses a variant of the topic's problem or a directly applicable method",
+        "core: directly addresses the topic's problem, methods or applications"
+      ]
+    },
+    "proposes_method": {
+      "type": "noul",
+      "instructions": "Does the reference propose or analyze an algorithm or mathematical method for the research_topic?"
+    },
+    "is_survey": {
+      "type": "noul",
+      "instructions": "Is the reference a survey, review or tutorial?"
+    },
+    "kind": {
+      "type": "choice",
+      "instructions": "What is the main contribution of the reference?",
+      "criteria": {
+        "theory": "Mathematical results, complexity or structural properties.",
+        "algorithm": "A new or improved algorithm, with computational experiments.",
+        "application": "Use of existing methods on real data or a specific domain.",
+        "other": "None of the above."
+      }
+    }
+  }
+}

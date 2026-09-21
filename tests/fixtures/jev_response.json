@@ -1,0 +1,12 @@
+{
+  "model": "typesafe/jev-1.13-20260917",
+  "answers": {
+    "relevance": {"type": "score", "score": 2.97, "legend": {"0": "unrelated", "1": "marginal", "2": "related", "3": "close", "4": "core"}, "probabilities": {"0": 0, "1": 0.04, "2": 0.19, "3": 0.53, "4": 0.24}, "confidence": 0.58},
+    "proposes_method": {"type": "noul", "noul": 0.25},
+    "is_survey": {"type": "noul", "noul": 0.04},
+    "kind": {"type": "choice", "choice": "theory", "probabilities": {"algorithm": 0.01, "theory": 0.72, "other": 0.27, "application": 0}, "confidence": 0.62}
+  },
+  "usage": {"input_tokens": 320, "output_tokens": 17, "cost": 1.344e-05},
+  "id": "gen-dec-example",
+  "provider": "TypeSafe"
+}

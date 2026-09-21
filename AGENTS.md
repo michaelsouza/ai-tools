@@ -15,6 +15,7 @@ playwright install chromium
 Create a `.env` file in the repo root:
 ```bash
 MISTRAL_API_KEY=your_mistral_api_key
+OPENROUTER_API_KEY=your_openrouter_api_key
 ```
 
 ## User options
