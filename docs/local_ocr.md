@@ -5,6 +5,10 @@ cloud API, selected after an empirical study (2026-08-29) focused on academic
 papers with complex math formulas. Full report:
 <https://claude.ai/code/artifact/db9590a3-8bfa-4465-b311-dd13d768f83f>
 
+> A newer benchmark (2026-09-22) and the current engine recommendation are in
+> [pdf2md.md](pdf2md.md). This page covers setup and operation of the two
+> engines already wired into `pdf2md.py`.
+
 ## Study summary
 
 Formula Quality Score (FQS): best partial alignment of normalized LaTeX against
