@@ -31,15 +31,14 @@ OPENROUTER_API_KEY=your_openrouter_api_key
 
 ### `pdf2md.py`
 
-PDF → Markdown via Mistral OCR (cloud) or local engines.
+PDF → Markdown via Mistral OCR (cloud) or LightOnOCR-2 (local).
 
 Which engine to use, the local OCR benchmark and lessons learned (including the Mistral rate-limit incident):
 **[docs/pdf2md.md](docs/pdf2md.md)**.
 
 - Accepts either a single PDF file or a directory containing PDFs.
-- Engines (`--model`): `mistral` (default, cloud), `dots` (local, best quality — on par with Mistral for
-  math), `paddle` (local, fastest), `nougat` (legacy). Local engines need a running server:
-  `tools/ocr_server.sh start {dots|paddle}`. Setup and benchmarks: [docs/local_ocr.md](docs/local_ocr.md).
+- Engines (`--model`): `mistral` (default, cloud) or `lighton` (local LightOnOCR-2 via llama.cpp, ~8 s/page).
+  The local engine needs its server: `tools/ocr_server.sh start lighton`. Setup: [docs/local_ocr.md](docs/local_ocr.md).
 - If `--include-images`, images save to `<output_dir>/<pdf_stem>_images/` and links are rewritten.
 - If `--save-ocr-json`, the full OCR response saves to `<pdf_stem>.ocr.json`.
 - If the target `.md` already exists, that PDF is skipped and processing continues.
@@ -50,7 +49,7 @@ Which engine to use, the local OCR benchmark and lessons learned (including the 
   limits at [console.mistral.ai](https://console.mistral.ai/)): the run stops at once with exit code 2,
   without uploading the remaining PDFs of a batch.
 - **Flags:** `-y/--yes`, `--include-images`, `-o/--output`, `--no-preview`, `--pages`, `--server-url`
-  (local engines).
+  (`--model lighton`).
 - **Mistral OCR 4 flags:** `--mistral-model`, `--include-blocks`, `--confidence-scores`, `--table-format`,
   `--extract-header`, `--extract-footer`, `--save-ocr-json`.
 
@@ -59,7 +58,7 @@ python tools/pdf2md.py file.pdf --yes --include-images -o file.md
 python tools/pdf2md.py ./pdfs --yes
 python tools/pdf2md.py file.pdf --pages 1-5 -o excerpt.md
 python tools/pdf2md.py file.pdf --yes --mistral-model mistral-ocr-4-0 --include-blocks --save-ocr-json
-tools/ocr_server.sh start dots && python tools/pdf2md.py paper.pdf --model dots -y
+tools/ocr_server.sh start lighton && python tools/pdf2md.py paper.pdf --model lighton -y
 ```
 
 ### `png2md.py`
@@ -293,7 +292,7 @@ python tools/mix_audio.py -o mixed.wav track1.wav:0 track2.wav:-3 track3.wav:+2
 ## Documentation
 
 - [pdf2md — engines, decisions and lessons learned](docs/pdf2md.md) — Escolha do motor de OCR (benchmark local de 2026-09-22), falhas observadas e o incidente de rate limit do Mistral.
-- [Local OCR setup](docs/local_ocr.md) — Instalação e operação dos servidores dots.ocr e PaddleOCR-VL.
+- [Local OCR setup](docs/local_ocr.md) — Instalação e operação do servidor local do LightOnOCR-2 (llama.cpp).
 - [OCR formula benchmark](benchmarks/ocr/README.md) — Método, GT e scripts para reavaliar motores de OCR.
 - [Guia de Boas Práticas e Avaliação de Skills (Evals)](docs/skills_best_practices_and_evals.md) — Boas práticas de autoria e framework de evals para skills de IA (baseado em Philipp Schmid / Google DeepMind).
 - [Claude Skills Reference](docs/claude_skills.md) — Referência estendida para criação e uso de skills no Claude Code.

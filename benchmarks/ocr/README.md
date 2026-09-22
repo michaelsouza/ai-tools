@@ -28,8 +28,7 @@ decisions: [docs/pdf2md.md](../../docs/pdf2md.md).
 
 ```bash
 python benchmarks/ocr/prepare.py                         # download papers, render pages into data/
-python benchmarks/ocr/run_pdf2md.py dots                  # engines already wired into pdf2md
-python benchmarks/ocr/run_pdf2md.py paddle
+python benchmarks/ocr/run_pdf2md.py lighton               # production path: tools/pdf2md.py end to end
 python benchmarks/ocr/run_llama.py glm-ocr --set clean    # candidates served by llama-server
 python benchmarks/ocr/run_llama.py glm-ocr --set scan
 python benchmarks/ocr/evaluate.py benchmarks/ocr/results/outputs --json /tmp/clean.json

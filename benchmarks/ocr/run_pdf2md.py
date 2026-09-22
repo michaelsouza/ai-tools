@@ -1,8 +1,9 @@
-"""Run the production pdf2md engines (dots, paddle) over the benchmark pages.
+"""Run a pdf2md engine end to end (the production path) over the benchmark pages.
 
-Usage: python benchmarks/ocr/run_pdf2md.py ENGINE   (ENGINE in dots|paddle)
-Starts the engine server with tools/ocr_server.sh, converts every clean and
-scan page PDF with tools/pdf2md.py, records wall time, then stops the server.
+Usage: python benchmarks/ocr/run_pdf2md.py ENGINE   (ENGINE in lighton|mistral)
+For lighton, starts the server with tools/ocr_server.sh and stops it at the end.
+Converts every clean and scan page PDF with tools/pdf2md.py and records wall time.
+The 2026-09-22 results for dots and paddle came from engines since removed.
 """
 
 import json
@@ -16,7 +17,9 @@ REPO = HERE.parents[1]
 PY = REPO / ".venv/bin/python"
 
 engine = sys.argv[1]
-subprocess.run([str(REPO / "tools/ocr_server.sh"), "start", engine], check=True)
+local = engine != "mistral"
+if local:
+    subprocess.run([str(REPO / "tools/ocr_server.sh"), "start", engine], check=True)
 try:
     for set_name, pages_dir, out_root in (("clean", "pages", "outputs"), ("scan", "pages_scan", "outputs_scan")):
         out_dir = HERE / "results" / out_root / engine
@@ -35,4 +38,5 @@ try:
                 (out_dir / f"{pdf.stem}.err").write_text(r.stdout[-3000:] + r.stderr[-3000:], encoding="utf-8")
         json.dump({"timings": timings}, open(out_dir / "run.json", "w"), indent=2)
 finally:
-    subprocess.run([str(REPO / "tools/ocr_server.sh"), "stop", engine])
+    if local:
+        subprocess.run([str(REPO / "tools/ocr_server.sh"), "stop", engine])

@@ -51,8 +51,8 @@ qwen-tts==0.1.1
 # GUI (used by audio_transcribe_gui.py)
 customtkinter==5.2.2
 
-# PDF OCR (used by pdf2md.py - default model)
-git+https://github.com/facebookresearch/nougat
+# PDF page rendering (used by pdf2md.py --model lighton)
+pypdfium2==5.6.0
 
 # PDF OCR (used by pdf2md.py --model mistral)
 mistralai>=1.0.0,<2.0.0

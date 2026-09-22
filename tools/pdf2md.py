@@ -1,27 +1,19 @@
 #!/home/michael/gitrepos/ai-tools/.venv/bin/python
 """
-PDF to Markdown Converter using Mistral OCR (cloud, default) or a local engine.
+PDF to Markdown Converter using Mistral OCR (cloud, default) or LightOnOCR-2 (local).
 
 Default mode uses Mistral's cloud OCR API (requires a MISTRAL_API_KEY in .env).
-Local engines (see docs/local_ocr.md for benchmarks and setup):
-    --model dots     dots.ocr via a local vLLM server (best local quality; on par
-                     with Mistral for math formulas). Start with:
-                         tools/ocr_server.sh start dots
-    --model paddle   PaddleOCR-VL 1.6 via llama.cpp (fastest local). Start with:
-                         tools/ocr_server.sh start paddle
-    --model nougat   Facebook Nougat (legacy; CC BY-NC, kept for comparison).
+Local engine (benchmark and decision in docs/pdf2md.md, setup in docs/local_ocr.md):
+    --model lighton  LightOnOCR-2-1B served by llama.cpp (llama-server). Start with:
+                         tools/ocr_server.sh start lighton
 Images are only available in Mistral mode (--include-images).
 
 Usage:
     # Basic conversion with default Mistral OCR model
     python pdf2md.py document.pdf
 
-    # Use a local engine (start its server first: tools/ocr_server.sh start dots)
-    python pdf2md.py document.pdf --model dots
-    python pdf2md.py document.pdf --model paddle
-
-    # Use local Nougat instead (legacy)
-    python pdf2md.py document.pdf --model nougat
+    # Use the local engine (start its server first: tools/ocr_server.sh start lighton)
+    python pdf2md.py document.pdf --model lighton
 
     # Convert all PDFs in a directory
     python pdf2md.py ./pdfs
@@ -31,9 +23,6 @@ Usage:
 
     # Specify custom output path
     python pdf2md.py document.pdf -o output/result.md
-
-    # Nougat-specific: batch size, no-skipping, full precision
-    python pdf2md.py document.pdf -b 8 --no-skipping --full-precision
 
     # Mistral-specific: include images
     python pdf2md.py document.pdf --model mistral --include-images
@@ -50,17 +39,11 @@ Options:
     --pages PAGES        Page range to process (e.g., '1-5', '1,3,5'). 1-based indexing.
 
 Model selection:
-    --model {mistral,dots,paddle,nougat}
-                         OCR engine to use (default: mistral). 'dots', 'paddle' and
-                         'nougat' run locally; 'mistral' requires MISTRAL_API_KEY in .env.
-    --server-url URL     Base URL of the local inference server for --model dots
-                         (default: http://127.0.0.1:8092/v1) or --model paddle
-                         (default: http://127.0.0.1:8091/v1).
-
-Nougat options (default model):
-    -b, --batch-size N   Batch size for inference (default: 4; increase if you have VRAM)
-    --no-skipping        Disable failure-detection heuristic (use if you get [MISSING_PAGE])
-    --full-precision     Use float32 instead of bfloat16 (can help on CPU)
+    --model {mistral,lighton}
+                         OCR engine to use (default: mistral). 'lighton' runs locally;
+                         'mistral' requires MISTRAL_API_KEY in .env.
+    --server-url URL     Base URL of the local llama-server for --model lighton
+                         (default: http://127.0.0.1:8093/v1).
 
 Mistral options:
     --include-images     Extract images from PDF, save to disk, and rewrite markdown links
@@ -79,7 +62,7 @@ Output:
 
 Requirements:
     - mistralai (default): Mistral AI Python SDK + python-dotenv
-    - nougat-ocr (optional): Facebook's Nougat model + torch
+    - pypdfium2 + Pillow (--model lighton): page rendering; llama.cpp llama-server
     - PyPDF2: PDF page extraction
     - rich: Terminal formatting and UI components
 
@@ -90,8 +73,9 @@ Exit Codes:
        e.g. billing/plan problems; the batch stops before uploading more PDFs)
 
 Notes:
-    - Nougat: runs entirely locally, GPU strongly recommended, model weights (~2GB)
-      downloaded on first use. Model weights are CC BY-NC licensed (non-commercial).
+    - LightOnOCR-2: runs locally (Apache-2.0); needs a recent llama.cpp and the Q8_0
+      vision projector (the f16 projector produces garbage on CUDA). A page that ends
+      on the token limit triggers a warning, since that is how broken output shows up.
     - Mistral: requires internet, API key, and may incur costs. The uploaded PDF is
       deleted from Mistral storage right after the OCR call, whether it succeeds or not.
 """
@@ -132,11 +116,10 @@ MISTRAL_CONSOLE_URL = "https://console.mistral.ai/"
 MISTRAL_MAX_ATTEMPTS = 5
 MISTRAL_MAX_BACKOFF_SECONDS = 60
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-DOTS_OCR_DEFAULT_URL = "http://127.0.0.1:8092/v1"
-DOTS_OCR_PROMPT = "Extract the text content from this image."
-PADDLE_VL_DEFAULT_URL = "http://127.0.0.1:8091/v1"
-PADDLEOCR_BIN_DEFAULT = str(REPO_ROOT / ".venv-paddle" / "bin" / "paddleocr")
+LIGHTON_DEFAULT_URL = "http://127.0.0.1:8093/v1"
+LIGHTON_RENDER_DPI = 200
+LIGHTON_MAX_SIDE = 1540
+LIGHTON_MAX_TOKENS = 6144
 
 
 def load_environment_config():
@@ -148,7 +131,7 @@ def load_environment_config():
 def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespace]:
     """Parses command-line arguments and validates the input path."""
     parser = argparse.ArgumentParser(
-        description="Convert a PDF to Markdown using Mistral OCR (cloud, default) or Nougat (local, opt-in)."
+        description="Convert a PDF to Markdown using Mistral OCR (cloud, default) or LightOnOCR-2 (local)."
     )
     parser.add_argument(
         "pdf_path",
@@ -161,25 +144,14 @@ def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespac
 
     parser.add_argument(
         "--model",
-        choices=["mistral", "dots", "paddle", "nougat"],
+        choices=["mistral", "lighton"],
         default="mistral",
-        help="OCR engine: 'mistral' (cloud API), 'dots'/'paddle'/'nougat' (local).",
+        help="OCR engine: 'mistral' (cloud API) or 'lighton' (local LightOnOCR-2).",
     )
     parser.add_argument(
         "--server-url",
-        help=(
-            "Base URL of the local inference server for --model dots "
-            f"(default: {DOTS_OCR_DEFAULT_URL}) or --model paddle "
-            f"(default: {PADDLE_VL_DEFAULT_URL})."
-        ),
+        help=f"Base URL of the local llama-server for --model lighton (default: {LIGHTON_DEFAULT_URL}).",
     )
-
-    parser.add_argument("-b", "--batch-size", type=int, default=4,
-                        help="Batch size for Nougat inference (default: 4).")
-    parser.add_argument("--no-skipping", action="store_true",
-                        help="Disable Nougat failure-detection (use if you get [MISSING_PAGE]).")
-    parser.add_argument("--full-precision", action="store_true",
-                        help="Use float32 instead of bfloat16 (Nougat, can help on CPU).")
 
     parser.add_argument(
         "--include-images",
@@ -379,32 +351,9 @@ def confirm_and_configure_processing(
     return bool(proceed)
 
 
-# --- Nougat (local) functions ---
+# --- Local engine (LightOnOCR-2 via llama-server) ---
 
-def initialize_nougat_model(console: Console, args: argparse.Namespace) -> Optional[dict]:
-    """Loads the Nougat model and processor from HuggingFace hub."""
-    import torch
-    from transformers import NougatProcessor, VisionEncoderDecoderModel
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    dtype = torch.float32 if args.full_precision else torch.bfloat16
-    model_id = "facebook/nougat-base"
-
-    with console.status(f"[bold green]Loading Nougat ({model_id}) on {device}...", spinner="dots"):
-        try:
-            processor = NougatProcessor.from_pretrained(model_id)
-            model = VisionEncoderDecoderModel.from_pretrained(
-                model_id, torch_dtype=dtype
-            ).to(device)
-            model.eval()
-            console.print(f"[green]Nougat model and processor loaded on {device}.[/]")
-            return {"model": model, "processor": processor}
-        except Exception as e:
-            console.print(f"[bold red]Error loading Nougat model:[/] {e}")
-            return None
-
-
-def _render_pdf_to_images(pdf_path: str, console: Console) -> Optional[List["Image.Image"]]:
+def _render_pdf_to_images(pdf_path: str, console: Console, dpi: int = 144) -> Optional[List["Image.Image"]]:
     """Renders each page of a PDF to a PIL Image using pypdfium2."""
     import pypdfium2
     from PIL import Image  # noqa: F811
@@ -415,7 +364,7 @@ def _render_pdf_to_images(pdf_path: str, console: Console) -> Optional[List["Ima
             images = []
             for i in range(len(pdf)):
                 page = pdf.get_page(i)
-                bitmap = page.render(scale=2.0)
+                bitmap = page.render(scale=dpi / 72)
                 pil_image = bitmap.to_pil()
                 images.append(pil_image)
             pdf.close()
@@ -423,74 +372,6 @@ def _render_pdf_to_images(pdf_path: str, console: Console) -> Optional[List["Ima
             console.print(f"[bold red]Error rendering PDF:[/] {e}")
             return None
     return images
-
-
-def process_nougat_ocr(
-    pdf_path: str, nougat: dict, console: Console, args: argparse.Namespace
-) -> Optional[List[str]]:
-    """Runs Nougat inference on a PDF, returning a list of page markdown strings."""
-    import torch
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = nougat["model"]
-    processor = nougat["processor"]
-
-    images = _render_pdf_to_images(pdf_path, console)
-    if not images:
-        return None
-
-    all_predictions: List[str] = []
-    num_batches = (len(images) + args.batch_size - 1) // args.batch_size
-
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeElapsedColumn(),
-        console=console,
-        transient=True,
-    ) as progress:
-        task_id = progress.add_task(
-            "[bold green]Running Nougat inference...", total=num_batches
-        )
-
-        bad_words_ids = [[processor.tokenizer.unk_token_id]] if not args.no_skipping else None
-
-        for batch_idx in range(0, len(images), args.batch_size):
-            batch_images = images[batch_idx:batch_idx + args.batch_size]
-            progress.update(
-                task_id,
-                advance=1,
-                description=f"[bold green]Nougat batch {batch_idx // args.batch_size + 1}/{num_batches}...",
-            )
-
-            try:
-                pixel_values = processor(
-                    images=batch_images, return_tensors="pt"
-                ).pixel_values.to(device=device, dtype=model.dtype)
-
-                with torch.no_grad():
-                    outputs = model.generate(
-                        pixel_values,
-                        min_length=1,
-                        max_new_tokens=model.config.decoder.max_position_embeddings,
-                        bad_words_ids=bad_words_ids,
-                        pad_token_id=processor.tokenizer.pad_token_id,
-                    )
-
-                batch_texts = processor.batch_decode(outputs, skip_special_tokens=True)
-                for text in batch_texts:
-                    text = processor.post_process_generation(text, fix_markdown=False)
-                    all_predictions.append(text)
-
-            except Exception as e:
-                console.print(
-                    f"[bold red]Nougat inference error at batch {batch_idx // args.batch_size + 1}:[/] {e}"
-                )
-                return None
-
-    return all_predictions
 
 
 # --- Mistral (cloud) functions ---
@@ -803,7 +684,7 @@ def extract_pages_content_and_save_images_mistral(
     return all_markdown_parts
 
 
-# --- Local server engines (dots.ocr via vLLM, PaddleOCR-VL via llama.cpp) ---
+# --- Local server helpers ---
 
 def check_local_server(base_url: str, engine: str, console: Console) -> bool:
     """Checks the health endpoint of a local OCR inference server."""
@@ -819,12 +700,39 @@ def check_local_server(base_url: str, engine: str, console: Console) -> bool:
         return False
 
 
-def process_dots_ocr(
+def fit_longest_side(image: "Image.Image", max_side: int) -> "Image.Image":
+    """Downscales an image so its longest side is at most max_side (never upscales)."""
+    from PIL import Image
+
+    longest = max(image.size)
+    if longest <= max_side:
+        return image
+    scale = max_side / longest
+    return image.resize((round(image.width * scale), round(image.height * scale)), Image.LANCZOS)
+
+
+def build_lighton_payload(image_b64: str) -> dict:
+    """Chat request for LightOnOCR-2: the page image alone, sampling from the model card."""
+    return {
+        "model": "lightonocr-2",
+        "temperature": 0.2,
+        "top_p": 0.9,
+        "max_tokens": LIGHTON_MAX_TOKENS,
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}],
+            }
+        ],
+    }
+
+
+def process_lighton_ocr(
     pdf_path: str, console: Console, args: argparse.Namespace
 ) -> Optional[List[str]]:
-    """Runs dots.ocr through a local vLLM OpenAI-compatible server, page by page."""
-    base_url = args.server_url or DOTS_OCR_DEFAULT_URL
-    images = _render_pdf_to_images(pdf_path, console)
+    """Runs LightOnOCR-2 through a local llama-server (OpenAI-compatible API), page by page."""
+    base_url = args.server_url or LIGHTON_DEFAULT_URL
+    images = _render_pdf_to_images(pdf_path, console, dpi=LIGHTON_RENDER_DPI)
     if not images:
         return None
 
@@ -838,33 +746,16 @@ def process_dots_ocr(
         console=console,
         transient=True,
     ) as progress:
-        task_id = progress.add_task("[bold green]Running dots.ocr...", total=len(images))
+        task_id = progress.add_task("[bold green]Running LightOnOCR-2...", total=len(images))
         for page_number, image in enumerate(images, start=1):
             progress.update(
                 task_id,
                 advance=1,
-                description=f"[bold green]dots.ocr page {page_number}/{len(images)}...",
+                description=f"[bold green]LightOnOCR-2 page {page_number}/{len(images)}...",
             )
             buffer = io.BytesIO()
-            image.save(buffer, "PNG")
-            image_b64 = base64.b64encode(buffer.getvalue()).decode()
-            payload = {
-                "model": "dots-ocr",
-                "temperature": 0,
-                "max_tokens": 4500,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/png;base64,{image_b64}"},
-                            },
-                            {"type": "text", "text": DOTS_OCR_PROMPT},
-                        ],
-                    }
-                ],
-            }
+            fit_longest_side(image, LIGHTON_MAX_SIDE).save(buffer, "PNG")
+            payload = build_lighton_payload(base64.b64encode(buffer.getvalue()).decode())
             try:
                 request = urlrequest.Request(
                     f"{base_url}/chat/completions",
@@ -874,48 +765,18 @@ def process_dots_ocr(
                 )
                 with urlrequest.urlopen(request, timeout=600) as response:
                     body = json.loads(response.read().decode("utf-8"))
-                all_markdown_parts.append(body["choices"][0]["message"]["content"])
             except Exception as e:
-                console.print(f"[bold red]dots.ocr error on page {page_number}:[/] {e}")
+                console.print(f"[bold red]LightOnOCR-2 error on page {page_number}:[/] {e}")
                 return None
+            choice = body["choices"][0]
+            if choice.get("finish_reason") == "length":
+                console.print(
+                    f"[bold yellow]Warning:[/] page {page_number} hit the {LIGHTON_MAX_TOKENS}-token limit; "
+                    "the output may be truncated or degenerate (check that the server uses the Q8_0 "
+                    "vision projector, see docs/pdf2md.md)."
+                )
+            all_markdown_parts.append(choice["message"]["content"] or "")
     return all_markdown_parts
-
-
-def process_paddle_ocr(
-    pdf_path: str, console: Console, args: argparse.Namespace
-) -> Optional[List[str]]:
-    """Runs the PaddleOCR-VL doc_parser pipeline against a local llama.cpp server."""
-    import subprocess
-
-    base_url = args.server_url or PADDLE_VL_DEFAULT_URL
-    paddleocr_bin = os.getenv("PADDLEOCR_BIN", PADDLEOCR_BIN_DEFAULT)
-    if not os.path.exists(paddleocr_bin):
-        console.print(
-            f"[bold red]Error:[/] paddleocr CLI not found at [cyan]{paddleocr_bin}[/] "
-            "(set PADDLEOCR_BIN or create .venv-paddle; see docs/local_ocr.md)."
-        )
-        return None
-
-    with tempfile.TemporaryDirectory(prefix="paddleocr_vl_") as tmp_dir:
-        cmd = [
-            paddleocr_bin,
-            "doc_parser",
-            "-i", pdf_path,
-            "--pipeline_version", "v1.6",
-            "--vl_rec_backend", "llama-cpp-server",
-            "--vl_rec_server_url", base_url,
-            "--save_path", tmp_dir,
-        ]
-        with console.status("[bold blue]Running PaddleOCR-VL...", spinner="dots"):
-            result = subprocess.run(cmd, capture_output=True, text=True)
-
-        markdown_files = sorted(Path(tmp_dir).rglob("*.md"))
-        if not markdown_files:
-            console.print("[bold red]PaddleOCR-VL produced no Markdown output.[/]")
-            if result.stderr:
-                console.print(result.stderr.strip().splitlines()[-1])
-            return None
-        return [f.read_text(encoding="utf-8") for f in markdown_files]
 
 
 # --- Common Utility Functions ---
@@ -991,7 +852,6 @@ def process_single_pdf(
     output_md_filename: str,
     console: Console,
     args: argparse.Namespace,
-    nougat_model: Optional[Any],
     mistral_client: Optional[Any],
     show_preview: bool,
 ) -> bool:
@@ -1020,19 +880,9 @@ def process_single_pdf(
     temp_files_to_clean = [pdf_path_to_use] if is_temp_file else []
 
     try:
-        if args.model == "nougat":
-            console.print(f"\n[cyan]Processing with Nougat (local)...[/]")
-            all_markdown_parts = process_nougat_ocr(pdf_path_to_use, nougat_model, console, args)
-            if all_markdown_parts is None:
-                return False
-        elif args.model == "dots":
-            console.print(f"\n[cyan]Processing with dots.ocr (local vLLM)...[/]")
-            all_markdown_parts = process_dots_ocr(pdf_path_to_use, console, args)
-            if all_markdown_parts is None:
-                return False
-        elif args.model == "paddle":
-            console.print(f"\n[cyan]Processing with PaddleOCR-VL (local llama.cpp)...[/]")
-            all_markdown_parts = process_paddle_ocr(pdf_path_to_use, console, args)
+        if args.model == "lighton":
+            console.print(f"\n[cyan]Processing with LightOnOCR-2 (local llama.cpp)...[/]")
+            all_markdown_parts = process_lighton_ocr(pdf_path_to_use, console, args)
             if all_markdown_parts is None:
                 return False
         else:
@@ -1097,19 +947,10 @@ def main():
     if not args:
         sys.exit(2)
 
-    nougat_model = None
     mistral_client = None
 
-    if args.model == "nougat":
-        nougat_model = initialize_nougat_model(console, args)
-        if not nougat_model:
-            console.print("[bold red]Failed to load Nougat model.[/]")
-            sys.exit(1)
-    elif args.model == "dots":
-        if not check_local_server(args.server_url or DOTS_OCR_DEFAULT_URL, "dots", console):
-            sys.exit(2)
-    elif args.model == "paddle":
-        if not check_local_server(args.server_url or PADDLE_VL_DEFAULT_URL, "paddle", console):
+    if args.model == "lighton":
+        if not check_local_server(args.server_url or LIGHTON_DEFAULT_URL, "lighton", console):
             sys.exit(2)
     else:
         mistral_client = initialize_mistral_client(console)
@@ -1156,7 +997,6 @@ def main():
                     output_md_filename=output_md_filename,
                     console=console,
                     args=args,
-                    nougat_model=nougat_model,
                     mistral_client=mistral_client,
                     show_preview=(not args.no_preview) and not is_directory_mode,
                 )
@@ -1167,9 +1007,9 @@ def main():
                         "disabled for this API key's workspace, so retrying cannot help. The key itself "
                         f"authenticates.\n\nCheck [bold]Billing[/] (plan, payment method, spending limit) and "
                         f"[bold]Limits[/] at [cyan]{MISTRAL_CONSOLE_URL}[/].\n\n"
-                        "Meanwhile, use a local engine:\n"
-                        "  tools/ocr_server.sh start dots\n"
-                        f"  python tools/pdf2md.py {args.pdf_path} --model dots\n\n"
+                        "Meanwhile, use the local engine:\n"
+                        "  tools/ocr_server.sh start lighton\n"
+                        f"  python tools/pdf2md.py {args.pdf_path} --model lighton\n\n"
                         f"[dim]API response: {e}[/]",
                         title="Mistral workspace blocked",
                         border_style="red",

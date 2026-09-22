@@ -1,4 +1,6 @@
+import base64
 import io
+import json
 import tempfile
 import unittest
 from email.message import Message
@@ -7,17 +9,24 @@ from types import SimpleNamespace
 from unittest import mock
 from urllib import error as urlerror
 
+import PyPDF2
+from PIL import Image
 from rich.console import Console
 
 from tools.pdf2md import (
     MISTRAL_MAX_BACKOFF_SECONDS,
     MistralWorkspaceBlocked,
+    LIGHTON_MAX_SIDE,
+    LIGHTON_MAX_TOKENS,
+    build_lighton_payload,
     build_mistral_ocr_payload,
     delete_mistral_file,
     extract_pages_content_and_save_images_mistral,
+    fit_longest_side,
     generate_ocr_json_filename,
     is_mistral_workspace_blocked,
     mistral_retry_delay,
+    process_lighton_ocr,
     process_ocr_with_mistral,
     process_single_pdf,
     save_ocr_response_to_file,
@@ -217,7 +226,7 @@ class Pdf2MdMistralUploadCleanupTests(unittest.TestCase):
             "tools.pdf2md.process_ocr_with_mistral", return_value=response
         ):
             output = Path(tmp) / "out.md"
-            ok = process_single_pdf(str(self.PDF), str(output), self.console, self._args(), None, client, False)
+            ok = process_single_pdf(str(self.PDF), str(output), self.console, self._args(), client, False)
             self.assertTrue(ok)
             self.assertIn("Hello", output.read_text(encoding="utf-8"))
         self.assertEqual(client.files.deleted, ["file-1"])
@@ -228,8 +237,61 @@ class Pdf2MdMistralUploadCleanupTests(unittest.TestCase):
             "tools.pdf2md.process_ocr_with_mistral", side_effect=MistralWorkspaceBlocked("limit 0")
         ):
             with self.assertRaises(MistralWorkspaceBlocked):
-                process_single_pdf(str(self.PDF), str(Path(tmp) / "out.md"), self.console, self._args(), None, client, False)
+                process_single_pdf(str(self.PDF), str(Path(tmp) / "out.md"), self.console, self._args(), client, False)
         self.assertEqual(client.files.deleted, ["file-1"])
+
+
+class Pdf2MdLightOnTests(unittest.TestCase):
+    PDF = Path(__file__).parent / "fixtures" / "lavor2019polynomiality.pdf"
+
+    def _response(self, content, finish="stop"):
+        body = {"choices": [{"message": {"content": content}, "finish_reason": finish}]}
+        return _Response(json.dumps(body).encode())
+
+    def _run(self, responses):
+        console = Console(file=io.StringIO())
+        args = SimpleNamespace(server_url="http://127.0.0.1:9/v1")
+        with mock.patch("tools.pdf2md.urlrequest.urlopen", side_effect=responses) as urlopen:
+            parts = process_lighton_ocr(str(self.PDF), console, args)
+        return parts, urlopen, console.file.getvalue()
+
+    def test_fit_longest_side_downscales_only(self):
+        big = Image.new("RGB", (1700, 2200))
+        small = Image.new("RGB", (800, 1000))
+        self.assertEqual(max(fit_longest_side(big, LIGHTON_MAX_SIDE).size), LIGHTON_MAX_SIDE)
+        self.assertEqual(fit_longest_side(big, LIGHTON_MAX_SIDE).size, (1190, 1540))
+        self.assertIs(fit_longest_side(small, LIGHTON_MAX_SIDE), small)
+
+    def test_payload_is_image_only_with_model_card_sampling(self):
+        payload = build_lighton_payload("QUJD")
+        content = payload["messages"][0]["content"]
+        self.assertEqual([c["type"] for c in content], ["image_url"])
+        self.assertEqual(content[0]["image_url"]["url"], "data:image/png;base64,QUJD")
+        self.assertEqual((payload["temperature"], payload["top_p"], payload["max_tokens"]), (0.2, 0.9, LIGHTON_MAX_TOKENS))
+
+    def test_one_request_per_page_with_downscaled_image(self):
+        pages = len(PyPDF2.PdfReader(str(self.PDF)).pages)
+        parts, urlopen, _ = self._run([self._response(f"page {i}") for i in range(pages)])
+        self.assertEqual(parts, [f"page {i}" for i in range(pages)])
+        self.assertEqual(urlopen.call_count, pages)
+        request = urlopen.call_args_list[0].args[0]
+        self.assertEqual(request.full_url, "http://127.0.0.1:9/v1/chat/completions")
+        image_b64 = json.loads(request.data)["messages"][0]["content"][0]["image_url"]["url"].split(",", 1)[1]
+        self.assertLessEqual(max(Image.open(io.BytesIO(base64.b64decode(image_b64))).size), LIGHTON_MAX_SIDE)
+
+    def test_token_limit_warns_about_degenerate_output(self):
+        pages = len(PyPDF2.PdfReader(str(self.PDF)).pages)
+        responses = [self._response("x", finish="length")] + [self._response("ok") for _ in range(pages - 1)]
+        parts, _, out = self._run(responses)
+        self.assertEqual(len(parts), pages)
+        self.assertIn("token limit", out)
+        self.assertIn("Q8_0", out)
+
+    def test_server_error_aborts_the_pdf(self):
+        parts, urlopen, out = self._run(urlerror.URLError("connection refused"))
+        self.assertIsNone(parts)
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertIn("LightOnOCR-2 error on page 1", out)
 
 
 if __name__ == "__main__":

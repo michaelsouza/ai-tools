@@ -2,25 +2,26 @@
 
 `tools/pdf2md.py` converts PDFs to Markdown with LaTeX math. This document
 records which OCR engine to use and why, the measurements behind that choice,
-and what went wrong along the way. Server setup for the local engines lives in
+and what went wrong along the way. Setup of the local engine lives in
 [local_ocr.md](local_ocr.md); the benchmark itself in
 [benchmarks/ocr/](../benchmarks/ocr/README.md).
 
-## Current recommendation
+## Engines
 
-| Use | Engine | Status in `pdf2md.py` |
+| `--model` | Engine | Where |
 |---|---|---|
-| Local, default | **LightOnOCR-2-1B** via llama.cpp | not wired yet — next step |
-| Local, available today | PaddleOCR-VL 1.6 (`--model paddle`) | wired |
-| Local, heavier | dots.ocr (`--model dots`) | wired; superseded |
-| Cloud | Mistral OCR (`--model mistral`, default) | wired; workspace blocked since 2026-09-22 |
+| `lighton` | **LightOnOCR-2-1B** via llama.cpp (`tools/ocr_server.sh start lighton`) | local — the only local engine |
+| `mistral` (default) | Mistral OCR | cloud — workspace blocked since 2026-09-22 |
 
 **LightOnOCR-2** transcribed every benchmark formula correctly, on clean and on
-scan-degraded pages, at ~8 s/page with 4.6 GB of VRAM (Apache-2.0). Adopting it
-requires a llama.cpp build newer than the one at `~/gitrepos/llama.cpp`
-(2026-03-27), which cannot load the model. **GLM-OCR** is the fallback: almost
-the same quality and speed, MIT, and it already runs on the current llama.cpp
-build.
+scan-degraded pages, at ~8 s/page with 4.6 GB of VRAM (Apache-2.0). It needs a
+recent llama.cpp (the 2026-03-27 build could not load it) and the Q8_0 vision
+projector. **GLM-OCR** is the documented fallback if LightOn ever breaks:
+almost the same quality and speed, MIT, and it runs on older llama.cpp builds.
+
+On 2026-09-22 the previous local engines were removed from `pdf2md.py`:
+`dots` (dots.ocr on vLLM), `paddle` (PaddleOCR-VL 1.6) and `nougat`. Their
+benchmark numbers stay below for reference.
 
 ## Local engine benchmark (2026-09-22)
 
@@ -34,7 +35,7 @@ Hardware: RTX 4070 Laptop 8 GB, WSL2.
 | Engine | FQS clean | FQS scan | s/page (median / max) | VRAM peak | License | Runtime |
 |---|---:|---:|---:|---:|---|---|
 | **LightOnOCR-2-1B** | **1.000** | **1.000** | 8.5 / 16.0 | 4.6 GB | Apache-2.0 | llama.cpp ≥ recent¹ |
-| **GLM-OCR** (1.3B) | 0.990 | 0.990 | 8.3 / 14.2 | 4.2 GB | MIT | llama.cpp (current build) |
+| **GLM-OCR** (1.3B) | 0.990 | 0.990 | 8.3 / 14.2 | 4.2 GB | MIT | llama.cpp ≥ 2026-02-18 |
 | dots.ocr (3.0B) | 0.981 | 0.947 | 17.0 / 26.6² | ~6.9 GB | MIT | vLLM 0.11 |
 | HunyuanOCR 1.5 (1.1B) | 0.978 | 0.987 | 12.2 / 15.6 | 5.5 GB | Tencent (custom) | llama.cpp ≥ 2026-07-21³ |
 | PaddleOCR-VL 1.6 (0.9B) | 0.975 | 1.000 | 11.3 / 12.8² | ~4.5 GB | Apache-2.0 | llama.cpp + paddleocr |
@@ -93,8 +94,8 @@ The rebuilt benchmark is now versioned in `benchmarks/ocr/`.
 - **llama.cpp is the one runtime that covers every candidate** on WSL2. vLLM
   is stuck at 0.11 here (0.28's runner needs UVA, unavailable on WSL2), and
   none of the 2026 OCR models run on 0.11. The newest models need a recent
-  llama.cpp: build it in a separate directory so the build used by
-  `--model paddle` is not disturbed.
+  llama.cpp; to evaluate a candidate without disturbing the build in use,
+  compile a second copy in a separate directory first.
 - **`finish_reason=length` on every page is a red flag**, not a slow model:
   check the text before trusting a score of zero.
 - **Inspect low scores before concluding.** Two apparent model errors were
@@ -130,8 +131,8 @@ curl -s -o /dev/null -D - https://api.mistral.ai/v1/chat/completions \
 ### Behaviour of `pdf2md.py` since then
 
 - A 429 whose `x-ratelimit-limit-req-minute` is `0` stops the run at once with
-  exit code 2 and a panel pointing to the Mistral console and to the local
-  engines; in batch mode the remaining PDFs are not uploaded.
+  exit code 2 and a panel pointing to the Mistral console and to
+  `--model lighton`; in batch mode the remaining PDFs are not uploaded.
 - Transient 429/5xx are retried up to 5 times with backoff, honouring
   `Retry-After` (max 60 s).
 - The uploaded PDF is deleted from Mistral storage right after the OCR call,
