@@ -47,5 +47,13 @@
     "sec_per_page_median": 11.3,
     "sec_per_page_max": 12.8,
     "vram_peak_mib": null
+  },
+  "lighton": {
+    "fqs_clean": 0.9998,
+    "fqs_scan": 0.9968,
+    "sec_per_page_median": 8.7,
+    "sec_per_page_max": 16.9,
+    "vram_peak_mib": null,
+    "note": "production path: tools/pdf2md.py --model lighton (pypdfium2 rendering)"
   }
 }

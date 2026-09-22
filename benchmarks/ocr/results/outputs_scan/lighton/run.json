@@ -1,0 +1,12 @@
+{
+  "timings": {
+    "ddpm_p3": {
+      "seconds": 17.5,
+      "exit": 0
+    },
+    "per_p16": {
+      "seconds": 7.3,
+      "exit": 0
+    }
+  }
+}
