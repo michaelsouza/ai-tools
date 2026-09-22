@@ -86,12 +86,14 @@ Requirements:
 Exit Codes:
     0: Success
     1: Processing error
-    2: Configuration error
+    2: Configuration error (including a Mistral workspace whose rate limit is 0,
+       e.g. billing/plan problems; the batch stops before uploading more PDFs)
 
 Notes:
     - Nougat: runs entirely locally, GPU strongly recommended, model weights (~2GB)
       downloaded on first use. Model weights are CC BY-NC licensed (non-commercial).
-    - Mistral: requires internet, API key, and may incur costs.
+    - Mistral: requires internet, API key, and may incur costs. The uploaded PDF is
+      deleted from Mistral storage right after the OCR call, whether it succeeds or not.
 """
 
 import os
@@ -103,6 +105,7 @@ import re
 import io
 import ssl
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional, Tuple, List, Any
 from urllib import error as urlerror
@@ -125,6 +128,9 @@ from rich.syntax import Syntax
 
 MISTRAL_OCR_ENDPOINT = "https://api.mistral.ai/v1/ocr"
 MISTRAL_OCR_DEFAULT_MODEL = "mistral-ocr-latest"
+MISTRAL_CONSOLE_URL = "https://console.mistral.ai/"
+MISTRAL_MAX_ATTEMPTS = 5
+MISTRAL_MAX_BACKOFF_SECONDS = 60
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOTS_OCR_DEFAULT_URL = "http://127.0.0.1:8092/v1"
@@ -506,8 +512,13 @@ def initialize_mistral_client(console: Console) -> Optional[Any]:
 
 def upload_pdf_to_mistral(
     client: Any, pdf_path: str, console: Console
-) -> Optional[str]:
-    """Uploads the PDF file to Mistral and returns the signed URL."""
+) -> Optional[Tuple[str, str]]:
+    """Uploads the PDF file to Mistral and returns (signed_url, file_id).
+
+    The caller must delete the file with delete_mistral_file once OCR is done;
+    if the upload succeeds but the signed URL fails, the file is deleted here.
+    """
+    file_id = None
     with console.status("[bold blue]Uploading PDF to Mistral...", spinner="dots"):
         try:
             with open(pdf_path, "rb") as f:
@@ -519,13 +530,24 @@ def upload_pdf_to_mistral(
                 },
                 purpose="ocr",
             )
-            signed_url_response = client.files.get_signed_url(
-                file_id=uploaded_file.id, expiry=1
-            )
-            return signed_url_response.url
+            file_id = uploaded_file.id
+            signed_url_response = client.files.get_signed_url(file_id=file_id, expiry=1)
+            return signed_url_response.url, file_id
         except Exception as e:
             console.print(f"[bold red]Error uploading PDF to Mistral:[/] {e}")
-            return None
+    if file_id:
+        delete_mistral_file(client, file_id, console)
+    return None
+
+
+def delete_mistral_file(client: Any, file_id: str, console: Console) -> bool:
+    """Deletes an uploaded PDF from Mistral storage. Warns instead of failing the run."""
+    try:
+        client.files.delete(file_id=file_id)
+        return True
+    except Exception as e:
+        console.print(f"[yellow]Warning:[/] could not delete uploaded file {file_id} from Mistral: {e}")
+        return False
 
 
 def _create_https_context() -> ssl.SSLContext:
@@ -560,35 +582,76 @@ def build_mistral_ocr_payload(document_url: str, args: argparse.Namespace) -> di
     return payload
 
 
+class MistralWorkspaceBlocked(Exception):
+    """The Mistral workspace has an inference rate limit of 0; retrying cannot succeed."""
+
+
+def _lower_headers(headers: Any) -> dict:
+    return {str(key).lower(): str(value).strip() for key, value in (headers or {}).items()}
+
+
+def is_mistral_workspace_blocked(status: int, headers: Any) -> bool:
+    """True when a 429 reports a per-minute limit of 0 (inference disabled for the workspace)."""
+    return status == 429 and _lower_headers(headers).get("x-ratelimit-limit-req-minute") == "0"
+
+
+def mistral_retry_delay(status: int, headers: Any, attempt: int) -> Optional[float]:
+    """Seconds to wait before retrying a failed OCR call (429/5xx), or None if not retryable."""
+    if status != 429 and status < 500:
+        return None
+    try:
+        wait = float(_lower_headers(headers).get("retry-after", ""))
+    except ValueError:
+        wait = 2.0**attempt
+    return min(max(wait, 0.0), MISTRAL_MAX_BACKOFF_SECONDS)
+
+
 def process_ocr_with_mistral(document_url: str, args: argparse.Namespace, console: Console) -> Optional[Any]:
-    """Processes the document URL with Mistral OCR."""
+    """Processes the document URL with Mistral OCR, retrying transient 429/5xx responses.
+
+    Raises MistralWorkspaceBlocked when the workspace rate limit is 0.
+    """
     api_key = os.getenv("MISTRAL_API_KEY")
     if not api_key:
         console.print("[bold red]Error:[/] MISTRAL_API_KEY not set. Cannot use --model mistral.")
         return None
 
     payload = build_mistral_ocr_payload(document_url, args)
+    data = json.dumps(payload).encode("utf-8")
     with console.status("[bold blue]Processing OCR with Mistral...", spinner="dots"):
         try:
-            request = urlrequest.Request(
-                MISTRAL_OCR_ENDPOINT,
-                data=json.dumps(payload).encode("utf-8"),
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                },
-                method="POST",
-            )
-            with urlrequest.urlopen(request, timeout=600, context=_create_https_context()) as response:
-                body = response.read().decode("utf-8")
-            return json.loads(body)
-        except urlerror.HTTPError as e:
-            error_detail = e.read().decode("utf-8", errors="replace")
-            console.print(
-                f"[bold red]Error during Mistral OCR processing:[/] HTTP {e.code}: {error_detail}"
-            )
-            return None
+            for attempt in range(1, MISTRAL_MAX_ATTEMPTS + 1):
+                request = urlrequest.Request(
+                    MISTRAL_OCR_ENDPOINT,
+                    data=data,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                    },
+                    method="POST",
+                )
+                try:
+                    with urlrequest.urlopen(request, timeout=600, context=_create_https_context()) as response:
+                        body = response.read().decode("utf-8")
+                    return json.loads(body)
+                except urlerror.HTTPError as e:
+                    error_detail = e.read().decode("utf-8", errors="replace")
+                    if is_mistral_workspace_blocked(e.code, e.headers):
+                        raise MistralWorkspaceBlocked(error_detail) from e
+                    delay = mistral_retry_delay(e.code, e.headers, attempt)
+                    if delay is None or attempt == MISTRAL_MAX_ATTEMPTS:
+                        console.print(
+                            f"[bold red]Error during Mistral OCR processing:[/] HTTP {e.code}: {error_detail}"
+                        )
+                        return None
+                    console.print(
+                        f"[yellow]Mistral OCR HTTP {e.code}; retrying in {delay:.0f}s "
+                        f"(attempt {attempt + 1}/{MISTRAL_MAX_ATTEMPTS})...[/]"
+                    )
+                    time.sleep(delay)
+        except MistralWorkspaceBlocked:
+            raise
         except urlerror.URLError as e:
             console.print(f"[bold red]Error connecting to Mistral OCR:[/] {e}")
             return None
@@ -974,16 +1037,16 @@ def process_single_pdf(
                 return False
         else:
             console.print(f"\n[cyan]Processing with Mistral OCR ({args.mistral_model})...[/]")
-            signed_url_str = upload_pdf_to_mistral(mistral_client, pdf_path_to_use, console)
-            if not signed_url_str:
+            uploaded = upload_pdf_to_mistral(mistral_client, pdf_path_to_use, console)
+            if not uploaded:
                 console.print("[bold red]Failed to upload PDF to Mistral.[/]")
                 return False
 
-            ocr_response = process_ocr_with_mistral(
-                signed_url_str,
-                args,
-                console,
-            )
+            signed_url_str, mistral_file_id = uploaded
+            try:
+                ocr_response = process_ocr_with_mistral(signed_url_str, args, console)
+            finally:
+                delete_mistral_file(mistral_client, mistral_file_id, console)
             if not ocr_response or not _get_ocr_pages(ocr_response):
                 console.print("[bold red]Mistral OCR processing failed or returned no pages.[/]")
                 return False
@@ -1087,15 +1150,35 @@ def main():
             else:
                 output_md_filename = generate_output_filename(pdf_path)
 
-            success = process_single_pdf(
-                pdf_path=pdf_path,
-                output_md_filename=output_md_filename,
-                console=console,
-                args=args,
-                nougat_model=nougat_model,
-                mistral_client=mistral_client,
-                show_preview=(not args.no_preview) and not is_directory_mode,
-            )
+            try:
+                success = process_single_pdf(
+                    pdf_path=pdf_path,
+                    output_md_filename=output_md_filename,
+                    console=console,
+                    args=args,
+                    nougat_model=nougat_model,
+                    mistral_client=mistral_client,
+                    show_preview=(not args.no_preview) and not is_directory_mode,
+                )
+            except MistralWorkspaceBlocked as e:
+                console.print(
+                    Panel(
+                        "Mistral answered 429 with a rate limit of [bold]0 requests/minute[/]: inference is "
+                        "disabled for this API key's workspace, so retrying cannot help. The key itself "
+                        f"authenticates.\n\nCheck [bold]Billing[/] (plan, payment method, spending limit) and "
+                        f"[bold]Limits[/] at [cyan]{MISTRAL_CONSOLE_URL}[/].\n\n"
+                        "Meanwhile, use a local engine:\n"
+                        "  tools/ocr_server.sh start dots\n"
+                        f"  python tools/pdf2md.py {args.pdf_path} --model dots\n\n"
+                        f"[dim]API response: {e}[/]",
+                        title="Mistral workspace blocked",
+                        border_style="red",
+                    )
+                )
+                remaining = len(pdf_files) - index
+                if remaining:
+                    console.print(f"[yellow]Stopped before {remaining} remaining file(s).[/]")
+                sys.exit(2)
             if not success:
                 failures += 1
 

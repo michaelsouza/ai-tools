@@ -40,6 +40,12 @@ PDF → Markdown via Mistral OCR (cloud) or local engines.
 - If `--include-images`, images save to `<output_dir>/<pdf_stem>_images/` and links are rewritten.
 - If `--save-ocr-json`, the full OCR response saves to `<pdf_stem>.ocr.json`.
 - If the target `.md` already exists, that PDF is skipped and processing continues.
+- Mistral mode uploads the PDF to Mistral's file storage and deletes it right after the OCR call, whether
+  the call succeeds or fails (a failed delete only prints a warning).
+- Mistral HTTP 429/5xx are retried up to 5 times with backoff (honours `Retry-After`, max 60 s). A 429 whose
+  `x-ratelimit-limit-req-minute` is `0` means inference is disabled for the workspace (billing, plan or
+  limits at [console.mistral.ai](https://console.mistral.ai/)): the run stops at once with exit code 2,
+  without uploading the remaining PDFs of a batch.
 - **Flags:** `-y/--yes`, `--include-images`, `-o/--output`, `--no-preview`, `--pages`, `--server-url`
   (local engines).
 - **Mistral OCR 4 flags:** `--mistral-model`, `--include-blocks`, `--confidence-scores`, `--table-format`,
