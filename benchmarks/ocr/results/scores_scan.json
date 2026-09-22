@@ -1,0 +1,149 @@
+{
+  "deepseek-ocr2": {
+    "fqs": 0.9933,
+    "ge95": 0.923,
+    "lt75": 0.0,
+    "n": 13,
+    "per_formula": {
+      "ddpm3_eq5": 0.9133,
+      "ddpm3_eq6": 1.0,
+      "ddpm3_eq7a": 1.0,
+      "ddpm3_eq7b": 1.0,
+      "ddpm3_eq8": 1.0,
+      "ddpm3_eq10": 1.0,
+      "per16_eq74": 1.0,
+      "per16_K": 1.0,
+      "per16_Kint": 1.0,
+      "per16_eq75": 1.0,
+      "per16_eq76": 1.0,
+      "per16_var2": 1.0,
+      "per16_eq78": 1.0
+    }
+  },
+  "dots": {
+    "fqs": 0.9473,
+    "ge95": 0.692,
+    "lt75": 0.0,
+    "n": 13,
+    "per_formula": {
+      "ddpm3_eq5": 0.8,
+      "ddpm3_eq6": 0.9836,
+      "ddpm3_eq7a": 0.8226,
+      "ddpm3_eq7b": 0.8246,
+      "ddpm3_eq8": 1.0,
+      "ddpm3_eq10": 0.9262,
+      "per16_eq74": 1.0,
+      "per16_K": 1.0,
+      "per16_Kint": 1.0,
+      "per16_eq75": 1.0,
+      "per16_eq76": 1.0,
+      "per16_var2": 0.9583,
+      "per16_eq78": 1.0
+    }
+  },
+  "glm-ocr": {
+    "fqs": 0.9898,
+    "ge95": 0.923,
+    "lt75": 0.0,
+    "n": 13,
+    "per_formula": {
+      "ddpm3_eq5": 0.9,
+      "ddpm3_eq6": 1.0,
+      "ddpm3_eq7a": 0.9677,
+      "ddpm3_eq7b": 1.0,
+      "ddpm3_eq8": 1.0,
+      "ddpm3_eq10": 1.0,
+      "per16_eq74": 1.0,
+      "per16_K": 1.0,
+      "per16_Kint": 1.0,
+      "per16_eq75": 1.0,
+      "per16_eq76": 1.0,
+      "per16_var2": 1.0,
+      "per16_eq78": 1.0
+    }
+  },
+  "hunyuanocr15": {
+    "fqs": 0.9867,
+    "ge95": 0.923,
+    "lt75": 0.0,
+    "n": 13,
+    "per_formula": {
+      "ddpm3_eq5": 0.8867,
+      "ddpm3_eq6": 1.0,
+      "ddpm3_eq7a": 0.9677,
+      "ddpm3_eq7b": 1.0,
+      "ddpm3_eq8": 1.0,
+      "ddpm3_eq10": 0.9732,
+      "per16_eq74": 1.0,
+      "per16_K": 1.0,
+      "per16_Kint": 1.0,
+      "per16_eq75": 1.0,
+      "per16_eq76": 1.0,
+      "per16_var2": 1.0,
+      "per16_eq78": 1.0
+    }
+  },
+  "lightonocr2": {
+    "fqs": 1.0,
+    "ge95": 1.0,
+    "lt75": 0.0,
+    "n": 13,
+    "per_formula": {
+      "ddpm3_eq5": 1.0,
+      "ddpm3_eq6": 1.0,
+      "ddpm3_eq7a": 1.0,
+      "ddpm3_eq7b": 1.0,
+      "ddpm3_eq8": 1.0,
+      "ddpm3_eq10": 1.0,
+      "per16_eq74": 1.0,
+      "per16_K": 1.0,
+      "per16_Kint": 1.0,
+      "per16_eq75": 1.0,
+      "per16_eq76": 1.0,
+      "per16_var2": 1.0,
+      "per16_eq78": 1.0
+    }
+  },
+  "lightonocr2-cpuvision": {
+    "fqs": 1.0,
+    "ge95": 1.0,
+    "lt75": 0.0,
+    "n": 13,
+    "per_formula": {
+      "ddpm3_eq5": 1.0,
+      "ddpm3_eq6": 1.0,
+      "ddpm3_eq7a": 1.0,
+      "ddpm3_eq7b": 1.0,
+      "ddpm3_eq8": 1.0,
+      "ddpm3_eq10": 1.0,
+      "per16_eq74": 1.0,
+      "per16_K": 1.0,
+      "per16_Kint": 1.0,
+      "per16_eq75": 1.0,
+      "per16_eq76": 1.0,
+      "per16_var2": 1.0,
+      "per16_eq78": 1.0
+    }
+  },
+  "paddle": {
+    "fqs": 1.0,
+    "ge95": 1.0,
+    "lt75": 0.0,
+    "n": 13,
+    "per_formula": {
+      "ddpm3_eq5": 1.0,
+      "ddpm3_eq6": 1.0,
+      "ddpm3_eq7a": 1.0,
+      "ddpm3_eq7b": 1.0,
+      "ddpm3_eq8": 1.0,
+      "ddpm3_eq10": 1.0,
+      "per16_eq74": 1.0,
+      "per16_K": 1.0,
+      "per16_Kint": 1.0,
+      "per16_eq75": 1.0,
+      "per16_eq76": 1.0,
+      "per16_var2": 1.0,
+      "per16_eq78": 1.0
+    }
+  }
+}

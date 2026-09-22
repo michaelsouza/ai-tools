@@ -1,0 +1,51 @@
+{
+  "deepseek-ocr2": {
+    "fqs_clean": 0.9657,
+    "fqs_scan": 0.9933,
+    "sec_per_page_median": 6.6,
+    "sec_per_page_max": 11.7,
+    "vram_peak_mib": 7831
+  },
+  "dots": {
+    "fqs_clean": 0.9812,
+    "fqs_scan": 0.9473,
+    "sec_per_page_median": 17.0,
+    "sec_per_page_max": 26.6,
+    "vram_peak_mib": null
+  },
+  "glm-ocr": {
+    "fqs_clean": 0.9899,
+    "fqs_scan": 0.9898,
+    "sec_per_page_median": 8.3,
+    "sec_per_page_max": 14.2,
+    "vram_peak_mib": 4222
+  },
+  "hunyuanocr15": {
+    "fqs_clean": 0.9782,
+    "fqs_scan": 0.9867,
+    "sec_per_page_median": 12.2,
+    "sec_per_page_max": 15.6,
+    "vram_peak_mib": 5490
+  },
+  "lightonocr2": {
+    "fqs_clean": 0.9998,
+    "fqs_scan": 1.0,
+    "sec_per_page_median": 8.5,
+    "sec_per_page_max": 16.0,
+    "vram_peak_mib": 4561
+  },
+  "lightonocr2-cpuvision": {
+    "fqs_clean": 0.9998,
+    "fqs_scan": 1.0,
+    "sec_per_page_median": 40.7,
+    "sec_per_page_max": 46.9,
+    "vram_peak_mib": 3477
+  },
+  "paddle": {
+    "fqs_clean": 0.9745,
+    "fqs_scan": 1.0,
+    "sec_per_page_median": 11.3,
+    "sec_per_page_max": 12.8,
+    "vram_peak_mib": null
+  }
+}

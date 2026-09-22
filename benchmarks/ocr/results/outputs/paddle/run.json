@@ -1,0 +1,28 @@
+{
+  "timings": {
+    "att_p4": {
+      "seconds": 11.2,
+      "exit": 0
+    },
+    "att_p5": {
+      "seconds": 11.8,
+      "exit": 0
+    },
+    "ddpm_p2": {
+      "seconds": 10.6,
+      "exit": 0
+    },
+    "ddpm_p3": {
+      "seconds": 12.8,
+      "exit": 0
+    },
+    "per_p15": {
+      "seconds": 11.4,
+      "exit": 0
+    },
+    "per_p16": {
+      "seconds": 10.1,
+      "exit": 0
+    }
+  }
+}

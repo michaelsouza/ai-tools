@@ -1,0 +1,16 @@
+{
+  "timings": {
+    "ddpm_p3": {
+      "seconds": 47.0,
+      "finish": "stop",
+      "completion_tokens": 1738
+    },
+    "per_p16": {
+      "seconds": 39.7,
+      "finish": "stop",
+      "completion_tokens": 795
+    }
+  },
+  "vram_peak_mib": 3477,
+  "vram_base_mib": 340
+}

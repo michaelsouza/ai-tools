@@ -1,0 +1,36 @@
+{
+  "timings": {
+    "att_p4": {
+      "seconds": 6.8,
+      "finish": "stop",
+      "completion_tokens": 647
+    },
+    "att_p5": {
+      "seconds": 8.9,
+      "finish": "stop",
+      "completion_tokens": 886
+    },
+    "ddpm_p2": {
+      "seconds": 12.2,
+      "finish": "stop",
+      "completion_tokens": 1420
+    },
+    "ddpm_p3": {
+      "seconds": 16.0,
+      "finish": "stop",
+      "completion_tokens": 1663
+    },
+    "per_p15": {
+      "seconds": 8.1,
+      "finish": "stop",
+      "completion_tokens": 973
+    },
+    "per_p16": {
+      "seconds": 8.0,
+      "finish": "stop",
+      "completion_tokens": 793
+    }
+  },
+  "vram_peak_mib": 4561,
+  "vram_base_mib": 340
+}
