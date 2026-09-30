@@ -105,6 +105,35 @@ The rebuilt benchmark is now versioned in `benchmarks/ocr/`.
 - `pgrep -f` inside a shell script matches the script's own command line; wait
   on files or task output instead.
 
+## Parallel OCR (`--workers`, `--server-url`) — Colab A100, 2026-09-30
+
+`--model lighton` can keep several pages in flight: `--workers N` sends N page
+requests at once, and `--server-url URL1,URL2,...` spreads the pages round-robin
+over several `llama-server` processes. Rendering runs on the main thread and
+feeds the workers page by page, so it overlaps with the OCR. Output order is
+preserved; the first failed page cancels the rest and exits with code 1.
+
+Measured on a Colab A100 80 GB with the 542-page `crippen1988distance.pdf`
+(LightOnOCR-2-1B f16 + Q8_0 projector):
+
+| Setup | Result |
+|---|---|
+| 1 server, 1 request at a time | ~2.4 s/page (~22 min, extrapolated) |
+| 1 server, `-np 8`, `--workers 8` | ~2.9 s/page at the start, no visible gain |
+| 4 servers x `-np 4`, `--workers 16` | 14 min 55 s of OCR (+ 1 min 30 s rendering, before the overlap change) |
+
+Text-only decode benchmark (`/completion`, 256 tokens, 8 concurrent requests):
+350 tokens/s with one server, 870 tokens/s with three. Sampler settings
+(`top_p`, greedy, `samplers: [temperature]`) made no difference.
+
+**Lesson: one `llama-server` process is CPU-bound, not GPU-bound.** With 8 slots
+the step time rose from ~5 ms to ~22 ms, GPU utilisation stayed near 30% and the
+process used a single CPU thread (Colab CPUs are slow). More slots in the same
+process barely help; more processes do. Each server needs `-c N x 16384` for N
+slots (2371 image tokens + up to 6144 output tokens per page) and used ~9 GB of
+VRAM with 4 slots. Start servers with `start_new_session=True` so that
+interrupting a notebook cell does not kill them.
+
 ## Mistral OCR (cloud)
 
 ### 2026-09-22: workspace blocked
