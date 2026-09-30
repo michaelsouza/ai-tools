@@ -42,8 +42,15 @@ Model selection:
     --model {mistral,lighton}
                          OCR engine to use (default: mistral). 'lighton' runs locally;
                          'mistral' requires MISTRAL_API_KEY in .env.
-    --server-url URL     Base URL of the local llama-server for --model lighton
-                         (default: http://127.0.0.1:8093/v1).
+    --server-url URL[,URL...]
+                         Base URL(s) of the local llama-server for --model lighton
+                         (default: http://127.0.0.1:8093/v1). Several comma-separated
+                         URLs spread the pages round-robin over that many servers.
+    --workers N          Pages sent to the llama-server at once for --model lighton
+                         (default: 1). The server must run with at least N slots
+                         (llama-server --parallel N, context >= N x 16384); with several servers,
+                         use the sum of their slots. One llama-server process is CPU-bound,
+                         so several servers scale better than one with many slots.
 
 Mistral options:
     --include-images     Extract images from PDF, save to disk, and rewrite markdown links
@@ -89,6 +96,10 @@ import re
 import io
 import ssl
 import tempfile
+import contextlib
+import functools
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 from pathlib import Path
 from typing import Optional, Tuple, List, Any
@@ -104,7 +115,9 @@ from rich.progress import (
     SpinnerColumn,
     TextColumn,
     BarColumn,
+    MofNCompleteColumn,
     TimeElapsedColumn,
+    TimeRemainingColumn,
 )
 from rich.prompt import Confirm
 from rich.syntax import Syntax
@@ -150,7 +163,17 @@ def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespac
     )
     parser.add_argument(
         "--server-url",
-        help=f"Base URL of the local llama-server for --model lighton (default: {LIGHTON_DEFAULT_URL}).",
+        help=(
+            "Base URL of the local llama-server for --model lighton; comma-separated URLs "
+            f"spread pages over several servers (default: {LIGHTON_DEFAULT_URL})."
+        ),
+    )
+
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Concurrent page requests for --model lighton; needs llama-server --parallel >= this (default: 1).",
     )
 
     parser.add_argument(
@@ -220,6 +243,9 @@ def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespac
         console.print(
             "[bold red]Error:[/] When processing a directory, --output must be a directory path."
         )
+        return None
+    if args.workers < 1:
+        console.print("[bold red]Error:[/] --workers must be at least 1.")
         return None
     if args.model != "mistral" and args.include_images:
         console.print(
@@ -353,25 +379,32 @@ def confirm_and_configure_processing(
 
 # --- Local engine (LightOnOCR-2 via llama-server) ---
 
-def _render_pdf_to_images(pdf_path: str, console: Console, dpi: int = 144) -> Optional[List["Image.Image"]]:
-    """Renders each page of a PDF to a PIL Image using pypdfium2."""
-    import pypdfium2
-    from PIL import Image  # noqa: F811
-
-    with console.status("[bold blue]Rendering PDF pages to images...", spinner="dots"):
-        try:
-            pdf = pypdfium2.PdfDocument(pdf_path)
-            images = []
-            for i in range(len(pdf)):
-                page = pdf.get_page(i)
-                bitmap = page.render(scale=dpi / 72)
-                pil_image = bitmap.to_pil()
-                images.append(pil_image)
-            pdf.close()
-        except Exception as e:
-            console.print(f"[bold red]Error rendering PDF:[/] {e}")
-            return None
-    return images
+@contextlib.contextmanager
+def _page_progress(console: Console, description: str, total: int):
+    """Yields advance(done, started, verb). Rich bar on a terminal, plain lines otherwise
+    (pipes, notebook `!` cells), so long runs show progress either way."""
+    if console.is_terminal:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+            transient=True,
+        ) as progress:
+            task_id = progress.add_task(description, total=total)
+            yield lambda done, started, verb: progress.update(task_id, completed=done)
+    else:
+        def advance(done: int, started: float, verb: str) -> None:
+            elapsed = time.monotonic() - started
+            eta = elapsed / done * (total - done)
+            console.print(
+                f"  {verb} page {done}/{total} "
+                f"(elapsed {elapsed:.0f}s, ETA {eta:.0f}s)"
+            )
+        yield advance
 
 
 # --- Mistral (cloud) functions ---
@@ -686,6 +719,12 @@ def extract_pages_content_and_save_images_mistral(
 
 # --- Local server helpers ---
 
+def parse_server_urls(server_url: Optional[str]) -> List[str]:
+    """Splits a comma-separated --server-url into base URLs (default server if unset)."""
+    urls = [u.strip().rstrip("/") for u in (server_url or "").split(",") if u.strip()]
+    return urls or [LIGHTON_DEFAULT_URL]
+
+
 def check_local_server(base_url: str, engine: str, console: Console) -> bool:
     """Checks the health endpoint of a local OCR inference server."""
     health_url = base_url.rsplit("/v1", 1)[0] + "/health"
@@ -730,53 +769,91 @@ def build_lighton_payload(image_b64: str) -> dict:
 def process_lighton_ocr(
     pdf_path: str, console: Console, args: argparse.Namespace
 ) -> Optional[List[str]]:
-    """Runs LightOnOCR-2 through a local llama-server (OpenAI-compatible API), page by page."""
-    base_url = args.server_url or LIGHTON_DEFAULT_URL
-    images = _render_pdf_to_images(pdf_path, console, dpi=LIGHTON_RENDER_DPI)
-    if not images:
+    """Runs LightOnOCR-2 through local llama-server(s) (OpenAI-compatible API).
+
+    Pages are rendered one at a time on this thread and handed to the worker pool as soon
+    as they are ready, so rendering overlaps with OCR.
+    """
+    import pypdfium2
+
+    base_urls = parse_server_urls(args.server_url)
+
+    def ocr_page(page_number: int, image: "Image.Image") -> str:
+        buffer = io.BytesIO()
+        fit_longest_side(image, LIGHTON_MAX_SIDE).save(buffer, "PNG")
+        payload = build_lighton_payload(base64.b64encode(buffer.getvalue()).decode())
+        request = urlrequest.Request(
+            f"{base_urls[(page_number - 1) % len(base_urls)]}/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlrequest.urlopen(request, timeout=600) as response:
+            body = json.loads(response.read().decode("utf-8"))
+        choice = body["choices"][0]
+        if choice.get("finish_reason") == "length":
+            console.print(
+                f"[bold yellow]Warning:[/] page {page_number} hit the {LIGHTON_MAX_TOKENS}-token limit; "
+                "the output may be truncated or degenerate (check that the server uses the Q8_0 "
+                "vision projector, see docs/pdf2md.md)."
+            )
+        return choice["message"]["content"] or ""
+
+    try:
+        pdf = pypdfium2.PdfDocument(pdf_path)
+    except Exception as e:
+        console.print(f"[bold red]Error rendering PDF:[/] {e}")
+        return None
+    total = len(pdf)
+    if total == 0:
+        pdf.close()
         return None
 
-    all_markdown_parts: List[str] = []
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeElapsedColumn(),
-        console=console,
-        transient=True,
-    ) as progress:
-        task_id = progress.add_task("[bold green]Running LightOnOCR-2...", total=len(images))
-        for page_number, image in enumerate(images, start=1):
-            progress.update(
-                task_id,
-                advance=1,
-                description=f"[bold green]LightOnOCR-2 page {page_number}/{len(images)}...",
-            )
-            buffer = io.BytesIO()
-            fit_longest_side(image, LIGHTON_MAX_SIDE).save(buffer, "PNG")
-            payload = build_lighton_payload(base64.b64encode(buffer.getvalue()).decode())
+    results: List[str] = [""] * total
+    futures: List[Any] = []
+    errors: List[Tuple[int, Exception]] = []
+    lock = threading.Lock()
+    completed = 0
+    started = time.monotonic()
+
+    with _page_progress(console, "[bold green]LightOnOCR-2", total) as advance:
+
+        def on_done(page_number: int, future: Any) -> None:
+            nonlocal completed
+            if future.cancelled():
+                return
             try:
-                request = urlrequest.Request(
-                    f"{base_url}/chat/completions",
-                    data=json.dumps(payload).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                with urlrequest.urlopen(request, timeout=600) as response:
-                    body = json.loads(response.read().decode("utf-8"))
+                text = future.result()
             except Exception as e:
-                console.print(f"[bold red]LightOnOCR-2 error on page {page_number}:[/] {e}")
-                return None
-            choice = body["choices"][0]
-            if choice.get("finish_reason") == "length":
-                console.print(
-                    f"[bold yellow]Warning:[/] page {page_number} hit the {LIGHTON_MAX_TOKENS}-token limit; "
-                    "the output may be truncated or degenerate (check that the server uses the Q8_0 "
-                    "vision projector, see docs/pdf2md.md)."
-                )
-            all_markdown_parts.append(choice["message"]["content"] or "")
-    return all_markdown_parts
+                errors.append((page_number, e))
+                return
+            with lock:
+                results[page_number - 1] = text
+                completed += 1
+                advance(completed, started, "OCR")
+
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            try:
+                for index in range(total):
+                    if errors:
+                        break
+                    image = pdf.get_page(index).render(scale=LIGHTON_RENDER_DPI / 72).to_pil()
+                    future = pool.submit(ocr_page, index + 1, image)
+                    future.add_done_callback(functools.partial(on_done, index + 1))
+                    futures.append(future)
+            except Exception as e:
+                errors.append((len(futures) + 1, e))
+            finally:
+                pdf.close()
+            if errors:
+                for pending in futures:
+                    pending.cancel()
+
+    if errors:
+        page_number, error = min(errors, key=lambda item: item[0])
+        console.print(f"[bold red]LightOnOCR-2 error on page {page_number}:[/] {error}")
+        return None
+    return results
 
 
 # --- Common Utility Functions ---
@@ -950,7 +1027,10 @@ def main():
     mistral_client = None
 
     if args.model == "lighton":
-        if not check_local_server(args.server_url or LIGHTON_DEFAULT_URL, "lighton", console):
+        if not all(
+            check_local_server(url, "lighton", console)
+            for url in parse_server_urls(args.server_url)
+        ):
             sys.exit(2)
     else:
         mistral_client = initialize_mistral_client(console)
