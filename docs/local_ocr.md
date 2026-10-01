@@ -54,6 +54,8 @@ temperature 0.2, top-p 0.9, up to 6144 output tokens. A page that stops on the
 token limit prints a warning — that is how broken output (such as the f16
 projector bug) shows up.
 
+To run it on a Colab GPU instead, see [colab_ocr.md](colab_ocr.md).
+
 ## History
 
 Until 2026-09-22 `pdf2md.py` also had `--model dots` (dots.ocr on vLLM 0.11),

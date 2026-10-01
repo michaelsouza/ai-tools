@@ -132,7 +132,8 @@ process used a single CPU thread (Colab CPUs are slow). More slots in the same
 process barely help; more processes do. Each server needs `-c N x 16384` for N
 slots (2371 image tokens + up to 6144 output tokens per page) and used ~9 GB of
 VRAM with 4 slots. Start servers with `start_new_session=True` so that
-interrupting a notebook cell does not kill them.
+interrupting a notebook cell does not kill them. Colab setup and pitfalls:
+[colab_ocr.md](colab_ocr.md).
 
 ## Mistral OCR (cloud)
 
