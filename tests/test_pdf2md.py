@@ -18,6 +18,8 @@ from tools.pdf2md import (
     MistralWorkspaceBlocked,
     LIGHTON_MAX_SIDE,
     LIGHTON_MAX_TOKENS,
+    LIGHTON_RETRY_SAMPLING,
+    LIGHTON_WORKERS,
     build_lighton_payload,
     build_mistral_ocr_payload,
     delete_mistral_file,
@@ -248,9 +250,9 @@ class Pdf2MdLightOnTests(unittest.TestCase):
         body = {"choices": [{"message": {"content": content}, "finish_reason": finish}]}
         return _Response(json.dumps(body).encode())
 
-    def _run(self, responses):
+    def _run(self, responses, workers=1):
         console = Console(file=io.StringIO())
-        args = SimpleNamespace(server_url="http://127.0.0.1:9/v1")
+        args = SimpleNamespace(server_url="http://127.0.0.1:9/v1", workers=workers)
         with mock.patch("tools.pdf2md.urlrequest.urlopen", side_effect=responses) as urlopen:
             parts = process_lighton_ocr(str(self.PDF), console, args)
         return parts, urlopen, console.file.getvalue()
@@ -279,18 +281,39 @@ class Pdf2MdLightOnTests(unittest.TestCase):
         image_b64 = json.loads(request.data)["messages"][0]["content"][0]["image_url"]["url"].split(",", 1)[1]
         self.assertLessEqual(max(Image.open(io.BytesIO(base64.b64decode(image_b64))).size), LIGHTON_MAX_SIDE)
 
-    def test_token_limit_warns_about_degenerate_output(self):
+    def test_concurrent_requests_cover_every_page(self):
         pages = len(PyPDF2.PdfReader(str(self.PDF)).pages)
-        responses = [self._response("x", finish="length")] + [self._response("ok") for _ in range(pages - 1)]
+        parts, urlopen, _ = self._run([self._response("ok") for _ in range(pages)], workers=LIGHTON_WORKERS)
+        self.assertEqual(parts, ["ok"] * pages)
+        self.assertEqual(urlopen.call_count, pages)
+
+    def test_token_limit_retries_with_repeat_penalty(self):
+        pages = len(PyPDF2.PdfReader(str(self.PDF)).pages)
+        responses = [self._response("loop", finish="length"), self._response("fixed")]
+        responses += [self._response("ok") for _ in range(pages - 1)]
+        parts, urlopen, out = self._run(responses)
+        self.assertEqual(parts, ["fixed"] + ["ok"] * (pages - 1))
+        self.assertEqual(urlopen.call_count, pages + 1)
+        retry = json.loads(urlopen.call_args_list[1].args[0].data)
+        self.assertEqual({k: retry[k] for k in LIGHTON_RETRY_SAMPLING}, LIGHTON_RETRY_SAMPLING)
+        first = json.loads(urlopen.call_args_list[0].args[0].data)
+        self.assertNotIn("repeat_penalty", first)
+        self.assertIn("kept the retry", out)
+
+    def test_token_limit_after_retry_warns_about_degenerate_output(self):
+        pages = len(PyPDF2.PdfReader(str(self.PDF)).pages)
+        responses = [self._response("x", finish="length"), self._response("y", finish="length")]
+        responses += [self._response("ok") for _ in range(pages - 1)]
         parts, _, out = self._run(responses)
         self.assertEqual(len(parts), pages)
+        self.assertEqual(parts[0], "x")
         self.assertIn("token limit", out)
         self.assertIn("Q8_0", out)
 
     def test_server_error_aborts_the_pdf(self):
-        parts, urlopen, out = self._run(urlerror.URLError("connection refused"))
+        parts, urlopen, out = self._run(urlerror.URLError("connection refused"), workers=LIGHTON_WORKERS)
         self.assertIsNone(parts)
-        self.assertEqual(urlopen.call_count, 1)
+        self.assertLessEqual(urlopen.call_count, len(PyPDF2.PdfReader(str(self.PDF)).pages))
         self.assertIn("LightOnOCR-2 error on page 1", out)
 
 

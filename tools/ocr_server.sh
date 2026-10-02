@@ -8,9 +8,16 @@
 #
 # Setup and model files: docs/local_ocr.md. The vision projector must be the
 # Q8_0 one: the f16 projector produces garbage on CUDA (see docs/pdf2md.md).
+# The defaults (Q8_0 language model, 4 slots of 9216 tokens) were tuned on an
+# RTX 4070 Laptop 8 GB under WSL2; on other hardware re-measure them
+# (docs/pdf2md.md, "Throughput tuning").
 # Overridable env vars:
 #   LLAMA_SERVER_BIN  path to llama-server (default: ~/gitrepos/llama.cpp/build-cuda/bin/llama-server)
 #   LIGHTON_PORT      default 8093
+#   LIGHTON_MODEL     language model GGUF (default: models/lightonocr2/LightOnOCR-2-1B-Q8_0.gguf)
+#   LIGHTON_SLOTS     parallel slots, match pdf2md.py --workers (default 4)
+#   LIGHTON_CTX       total context, split evenly across slots (default 36864 = 4 x 9216;
+#                     each slot needs ~2.3k image tokens + 6144 output tokens)
 set -u
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,7 +27,9 @@ mkdir -p "$RUN_DIR"
 LLAMA_SERVER_BIN="${LLAMA_SERVER_BIN:-$HOME/gitrepos/llama.cpp/build-cuda/bin/llama-server}"
 LIGHTON_PORT="${LIGHTON_PORT:-8093}"
 LIGHTON_DIR="$REPO/models/lightonocr2"
-LIGHTON_MODEL="$LIGHTON_DIR/LightOnOCR-2-1B-f16.gguf"
+LIGHTON_MODEL="${LIGHTON_MODEL:-$LIGHTON_DIR/LightOnOCR-2-1B-Q8_0.gguf}"
+LIGHTON_SLOTS="${LIGHTON_SLOTS:-4}"
+LIGHTON_CTX="${LIGHTON_CTX:-36864}"
 LIGHTON_MMPROJ="$LIGHTON_DIR/mmproj-LightOnOCR-2-1B-Q8_0.gguf"
 
 health() { curl -s --max-time 3 "http://127.0.0.1:$1/health" > /dev/null 2>&1; }
@@ -35,7 +44,7 @@ start_lighton() {
     done
     setsid nohup "$LLAMA_SERVER_BIN" \
         -m "$LIGHTON_MODEL" --mmproj "$LIGHTON_MMPROJ" \
-        -c 16384 -ngl 99 --port "$LIGHTON_PORT" > "$RUN_DIR/lighton.log" 2>&1 < /dev/null &
+        -c "$LIGHTON_CTX" -np "$LIGHTON_SLOTS" -ngl 99 --port "$LIGHTON_PORT" > "$RUN_DIR/lighton.log" 2>&1 < /dev/null &
     echo $! > "$RUN_DIR/lighton.pid"
     printf "lighton: starting (llama.cpp)"
     for _ in $(seq 1 24); do

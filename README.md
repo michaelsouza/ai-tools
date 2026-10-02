@@ -37,7 +37,7 @@ Which engine to use, the local OCR benchmark and lessons learned (including the 
 **[docs/pdf2md.md](docs/pdf2md.md)**.
 
 - Accepts either a single PDF file or a directory containing PDFs.
-- Engines (`--model`): `mistral` (default, cloud) or `lighton` (local LightOnOCR-2 via llama.cpp, ~8 s/page).
+- Engines (`--model`): `mistral` (default, cloud) or `lighton` (local LightOnOCR-2 via llama.cpp, ~6 s/page with 4 pages in parallel on an RTX 4070 Laptop; `--workers N`).
   The local engine needs its server: `tools/ocr_server.sh start lighton`. Setup: [docs/local_ocr.md](docs/local_ocr.md).
 - If `--include-images`, images save to `<output_dir>/<pdf_stem>_images/` and links are rewritten.
 - If `--save-ocr-json`, the full OCR response saves to `<pdf_stem>.ocr.json`.

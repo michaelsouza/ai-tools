@@ -17,6 +17,7 @@ mistralai==1.9.11
 pydantic==2.12.2
 pydantic_core==2.41.4
 Pygments==2.19.2
+pycryptodome==3.23.0
 PyPDF2==3.0.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.1

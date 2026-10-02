@@ -47,7 +47,7 @@ Model selection:
                          (default: http://127.0.0.1:8093/v1). Several comma-separated
                          URLs spread the pages round-robin over that many servers.
     --workers N          Pages sent to the llama-server at once for --model lighton
-                         (default: 1). The server must run with at least N slots
+                         (default: 4). The server must run with at least N slots
                          (llama-server --parallel N, context >= N x 16384); with several servers,
                          use the sum of their slots. One llama-server process is CPU-bound,
                          so several servers scale better than one with many slots.
@@ -133,6 +133,10 @@ LIGHTON_DEFAULT_URL = "http://127.0.0.1:8093/v1"
 LIGHTON_RENDER_DPI = 200
 LIGHTON_MAX_SIDE = 1540
 LIGHTON_MAX_TOKENS = 6144
+LIGHTON_WORKERS = 4  # concurrent page requests; keep equal to LIGHTON_SLOTS in tools/ocr_server.sh
+# Retry sampling for pages that loop until max_tokens (e.g. dotted equation leaders in SPE papers).
+# DRY was tested too and dropped a repeated matrix from an equation; repeat_penalty kept it intact.
+LIGHTON_RETRY_SAMPLING = {"repeat_penalty": 1.1, "repeat_last_n": 256}
 
 
 def load_environment_config():
@@ -172,8 +176,8 @@ def parse_and_validate_arguments(console: Console) -> Optional[argparse.Namespac
     parser.add_argument(
         "--workers",
         type=int,
-        default=1,
-        help="Concurrent page requests for --model lighton; needs llama-server --parallel >= this (default: 1).",
+        default=LIGHTON_WORKERS,
+        help=f"Concurrent page requests for --model lighton; needs llama-server --parallel >= this (default: {LIGHTON_WORKERS}).",
     )
 
     parser.add_argument(
@@ -778,25 +782,39 @@ def process_lighton_ocr(
 
     base_urls = parse_server_urls(args.server_url)
 
-    def ocr_page(page_number: int, image: "Image.Image") -> str:
-        buffer = io.BytesIO()
-        fit_longest_side(image, LIGHTON_MAX_SIDE).save(buffer, "PNG")
-        payload = build_lighton_payload(base64.b64encode(buffer.getvalue()).decode())
+    def post(base_url: str, payload: dict) -> dict:
         request = urlrequest.Request(
-            f"{base_urls[(page_number - 1) % len(base_urls)]}/chat/completions",
+            f"{base_url}/chat/completions",
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
         with urlrequest.urlopen(request, timeout=600) as response:
             body = json.loads(response.read().decode("utf-8"))
-        choice = body["choices"][0]
+        return body["choices"][0]
+
+    def ocr_page(page_number: int, image: "Image.Image") -> str:
+        buffer = io.BytesIO()
+        fit_longest_side(image, LIGHTON_MAX_SIDE).save(buffer, "PNG")
+        payload = build_lighton_payload(base64.b64encode(buffer.getvalue()).decode())
+        base_url = base_urls[(page_number - 1) % len(base_urls)]
+        choice = post(base_url, payload)
         if choice.get("finish_reason") == "length":
-            console.print(
-                f"[bold yellow]Warning:[/] page {page_number} hit the {LIGHTON_MAX_TOKENS}-token limit; "
-                "the output may be truncated or degenerate (check that the server uses the Q8_0 "
-                "vision projector, see docs/pdf2md.md)."
-            )
+            # A page that hits max_tokens is almost always a repetition loop: retry once with a
+            # repetition penalty and keep the retry unless it also hits the limit.
+            retry = post(base_url, {**payload, **LIGHTON_RETRY_SAMPLING})
+            if retry.get("finish_reason") == "length":
+                console.print(
+                    f"[bold yellow]Warning:[/] page {page_number} hit the {LIGHTON_MAX_TOKENS}-token limit "
+                    "even after a retry with repeat_penalty; the output may be truncated or degenerate "
+                    "(check that the server uses the Q8_0 vision projector, see docs/pdf2md.md)."
+                )
+            else:
+                choice = retry
+                console.print(
+                    f"[yellow]Page {page_number} looped until the token limit; "
+                    "kept the retry with repeat_penalty.[/]"
+                )
         return choice["message"]["content"] or ""
 
     try:

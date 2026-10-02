@@ -23,6 +23,90 @@ On 2026-09-22 the previous local engines were removed from `pdf2md.py`:
 `dots` (dots.ocr on vLLM), `paddle` (PaddleOCR-VL 1.6) and `nougat`. Their
 benchmark numbers stay below for reference.
 
+Since 2026-10-02 the server runs a **Q8_0 language model with 4 slots** and
+`pdf2md.py` sends 4 pages at a time (`--workers`): ~6 s/page end to end
+instead of ~12 s, same benchmark score. Those defaults were tuned for one
+machine; see [Throughput tuning](#throughput-tuning-2026-10-02).
+
+## Throughput tuning (2026-10-02)
+
+**Hardware and software of every number in this section** — the settings are
+not universal; re-measure on other hardware:
+
+- GPU: NVIDIA GeForce RTX 4070 **Laptop** GPU, 8 GB, driver 32.0.16.1714
+  (Windows), CUDA through **WSL2** (Ubuntu, kernel 6.6.87.2-microsoft-standard-WSL2).
+- CPU: Intel Core i9-14900HX (32 threads); RAM: 64 GB on the host, 31 GB
+  visible to WSL2. llama-server's decode loop runs on one core, so
+  single-thread CPU speed matters as much as the GPU (see below).
+- llama.cpp `f46bc30` (2026-09-22), CUDA build for compute capability 8.9.
+- Laptop GPU on battery/thermal limits: repeated runs of the same
+  configuration varied by ~20%, so configurations were compared back to back.
+
+**Method.** A throwaway script sent the same 8 pages (manea2016, pp. 3–10,
+rendered once) to llama-server at 1, 2, 4 and 8 concurrent requests, with the
+model-card sampling plus a fixed seed: every run produced the same 10,321
+tokens, so tokens/s compare like for like.
+
+| Server configuration | 1 page at a time | 4 concurrent | s/page at 4 |
+|---|---:|---:|---:|
+| f16 LM, unified KV (`-c 32768`) | 105 tok/s | 159 tok/s | 8.1 |
+| f16 LM, per-slot KV (`-np 4`) | 107 tok/s | 170–200 tok/s | 6.4–7.6 |
+| f16 LM + `--backend-sampling` | 101 tok/s | 192 tok/s | 6.7 |
+| **Q8_0 LM, per-slot KV** | 137 tok/s | 220–233 tok/s | 5.5–5.9 |
+| Q8_0 LM + `--backend-sampling` | 132 tok/s | 225 tok/s | 5.7 |
+| Q8_0 LM, 8 slots (`-np 8`) | — | 61–153 tok/s | 11.5–29 |
+
+End to end with `pdf2md.py` (rendering included), manea2016 (17 pages):
+221 s with the old setup (f16, one page at a time) → **107 s** with the
+current defaults; peak VRAM 5.9 GB.
+
+**Quality.** The Q8_0 language model scores the same as f16 on the formula
+benchmark (FQS 1.000 clean, 0.997 scan; same pages, both runs through
+`pdf2md.py`). The Q8_0 *vision projector* was already in use; the f16
+projector remains broken on CUDA.
+
+**Why 4 concurrent pages give ~1.7×, not 4×.** During decoding the
+llama-server main thread sits at 100% of one CPU core while the GPU is at
+~72%: the loop is CPU-bound (kernel launches and per-slot sampling over a
+~151k-token vocabulary), and that cost grows with every slot. Ruled out:
+
+- CUDA graphs — `GGML_CUDA_DISABLE_GRAPHS=1` leaves single-stream speed
+  unchanged (104 → 103 tok/s), so losing them in batched decoding is not it.
+- Unified KV cache — per-slot KV (`-np 4`) helps a little, within noise.
+- GPU sampling (`--backend-sampling`, experimental) — no gain.
+- Memory bandwidth — Q8_0 halves the weights read per token but speeds a
+  single stream up only ~25%.
+
+**8 slots do not fit**: 8 GB fill up (7.9 GB) and throughput collapses; the
+output also changed (14,120 tokens instead of 10,321).
+
+**What to re-check on other hardware:** a faster CPU core raises the ceiling;
+a GPU with more VRAM may take more slots (`LIGHTON_SLOTS` in
+`tools/ocr_server.sh`, `--workers` in `pdf2md.py`, keep them equal and give
+each slot ≥ 8.5k tokens via `LIGHTON_CTX`); on native Linux the CPU overhead
+of kernel launches may be lower than under WSL2.
+
+## Problems found converting a real bibliography (2026-10-02)
+
+19 papers, 357 pages (numerical linear algebra, reservoir simulation).
+
+- **Repetition loops on dotted equation leaders.** SPE Journal papers put a
+  dotted line between each equation and its number; LightOnOCR-2 sometimes
+  transcribes it as `\cdots \quad \cdots …` until the 6144-token limit, and
+  the rest of the page is lost (3 of 20 pages in two papers, 13–14k-character
+  lines). It happens with one page at a time too, so it is not caused by
+  concurrency, and sampling makes it intermittent. `pdf2md.py` now retries a
+  page that stops on the token limit once with `repeat_penalty 1.1,
+  repeat_last_n 256` and keeps the retry unless it also hits the limit. On
+  the failing page the retry transcribed the full page and its equations
+  matched the PDF. **DRY sampling was rejected**: it also broke the loop but
+  dropped a repeated matrix from an equation (`\begin{pmatrix} A & -B \\ …`
+  appears twice in the source). The penalty is applied only on the retry, so
+  normal pages keep the model-card sampling.
+- **AES-encrypted PDFs** (some SPE/Elsevier downloads) fail in PyPDF2 with
+  `PyCryptodome is required for AES`; `pycryptodome` is now in
+  `requirements.txt`.
+
 ## Local engine benchmark (2026-09-22)
 
 36 formulas from the arXiv LaTeX sources of DDPM, Attention Is All You Need and
@@ -102,8 +186,12 @@ The rebuilt benchmark is now versioned in `benchmarks/ocr/`.
   normalization gaps (`\mathrel{\text{:=}}`, `\parallel` for `\|`); the
   evaluator now treats both as equivalent. The remaining low scores were real
   transcription errors.
-- `pgrep -f` inside a shell script matches the script's own command line; wait
-  on files or task output instead.
+- `pgrep -f` / `pkill -f` match the calling shell's own command line: a
+  `pgrep -f pattern` wait loop never ends and `pkill -f pattern` kills the
+  shell that ran it. Wait on files, PIDs (`$!`) or task output instead.
+- **Laptop GPU timings drift ~20% between runs** (thermal and power state);
+  compare configurations back to back, and use a fixed seed so every run
+  generates the same tokens.
 
 ## Parallel OCR (`--workers`, `--server-url`) — Colab A100, 2026-09-30
 
