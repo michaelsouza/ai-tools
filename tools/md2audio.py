@@ -13,7 +13,7 @@ Setup:
     qwen (local GPU):
         pip install -U qwen-tts soundfile torch
         huggingface-cli download Qwen/Qwen3-TTS-Tokenizer-12Hz --local-dir models/Qwen3-TTS-Tokenizer-12Hz
-        huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+        huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
 
 Engine choice (pt-BR benchmark, blind listening 1-5): Gemini 3.8 Flash-Lite TTS 4.95, Qwen3-TTS 1.7B 3.25;
 see benchmarks/tts/README.md.
@@ -47,8 +47,8 @@ GEMINI_SAMPLE_RATE = 24000  # OpenRouter returns Gemini audio as raw PCM: 24 kHz
 OPENROUTER_SPEECH_URL = "https://openrouter.ai/api/v1/audio/speech"
 GEMINI_RETRIES = 4
 DEFAULT_WORKERS = 4
-RECOMMENDED_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
-DEFAULT_MODEL = "models/Qwen3-TTS-12Hz-0.6B-CustomVoice"
+RECOMMENDED_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+DEFAULT_MODEL = "models/Qwen3-TTS-12Hz-1.7B-CustomVoice"
 DEFAULT_SPEAKER = "ryan"
 DEFAULT_CHUNK_CHARS = 900
 DEFAULT_BATCH_SIZE = 2
@@ -530,7 +530,7 @@ Setup:
   qwen (local GPU):
   pip install -U qwen-tts soundfile torch
   huggingface-cli download Qwen/Qwen3-TTS-Tokenizer-12Hz --local-dir models/Qwen3-TTS-Tokenizer-12Hz
-  huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+  huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
         """,
     )
     parser.add_argument("input", type=Path, help="Markdown document to narrate")
