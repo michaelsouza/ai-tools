@@ -1,0 +1,133 @@
+{
+  "engine": "fish-s2-q6_k",
+  "config": {
+    "model": "s2-pro-q6_k.gguf",
+    "gpu_layers": -1,
+    "mode": "voice clone (saved profile)",
+    "sampling": "s2.cpp defaults (temp 0.8, top-p 0.8, top-k 30)"
+  },
+  "load_seconds": 26.19,
+  "peak_vram_mib": 7747,
+  "sentences": [
+    {
+      "id": "s01",
+      "gen_seconds": 10.802,
+      "audio_seconds": 6.316,
+      "rtf": 1.71
+    },
+    {
+      "id": "s02",
+      "gen_seconds": 10.324,
+      "audio_seconds": 6.037,
+      "rtf": 1.71
+    },
+    {
+      "id": "s03",
+      "gen_seconds": 10.893,
+      "audio_seconds": 6.455,
+      "rtf": 1.688
+    },
+    {
+      "id": "s04",
+      "gen_seconds": 15.585,
+      "audio_seconds": 8.22,
+      "rtf": 1.896
+    },
+    {
+      "id": "s05",
+      "gen_seconds": 18.365,
+      "audio_seconds": 9.288,
+      "rtf": 1.977
+    },
+    {
+      "id": "s06",
+      "gen_seconds": 12.466,
+      "audio_seconds": 7.338,
+      "rtf": 1.699
+    },
+    {
+      "id": "s07",
+      "gen_seconds": 10.344,
+      "audio_seconds": 6.13,
+      "rtf": 1.687
+    },
+    {
+      "id": "s08",
+      "gen_seconds": 11.952,
+      "audio_seconds": 7.105,
+      "rtf": 1.682
+    },
+    {
+      "id": "s09",
+      "gen_seconds": 11.968,
+      "audio_seconds": 7.105,
+      "rtf": 1.684
+    },
+    {
+      "id": "s10",
+      "gen_seconds": 16.428,
+      "audio_seconds": 8.731,
+      "rtf": 1.882
+    },
+    {
+      "id": "s11",
+      "gen_seconds": 17.862,
+      "audio_seconds": 9.009,
+      "rtf": 1.983
+    },
+    {
+      "id": "s12",
+      "gen_seconds": 11.519,
+      "audio_seconds": 6.827,
+      "rtf": 1.687
+    },
+    {
+      "id": "s13",
+      "gen_seconds": 10.792,
+      "audio_seconds": 6.455,
+      "rtf": 1.672
+    },
+    {
+      "id": "s14",
+      "gen_seconds": 8.83,
+      "audio_seconds": 5.248,
+      "rtf": 1.683
+    },
+    {
+      "id": "s15",
+      "gen_seconds": 8.804,
+      "audio_seconds": 5.201,
+      "rtf": 1.693
+    },
+    {
+      "id": "s16",
+      "gen_seconds": 9.505,
+      "audio_seconds": 5.666,
+      "rtf": 1.678
+    },
+    {
+      "id": "s17",
+      "gen_seconds": 10.657,
+      "audio_seconds": 6.269,
+      "rtf": 1.7
+    },
+    {
+      "id": "s18",
+      "gen_seconds": 11.069,
+      "audio_seconds": 6.548,
+      "rtf": 1.69
+    },
+    {
+      "id": "s19",
+      "gen_seconds": 52.537,
+      "audio_seconds": 19.04,
+      "rtf": 2.759
+    },
+    {
+      "id": "s20",
+      "gen_seconds": 60.008,
+      "audio_seconds": 20.898,
+      "rtf": 2.871
+    }
+  ]
+}

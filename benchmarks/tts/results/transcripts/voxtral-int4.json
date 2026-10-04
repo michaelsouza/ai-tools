@@ -1,0 +1,202 @@
+[
+  {
+    "id": "s01",
+    "cat": "cotidiano",
+    "wer": 0.0526,
+    "cer": 0.1099,
+    "hyp": "Shimiwase, bom dia. Hoje o céu amanheceu nublado, mas a previsão diz que vai abrir um sol bonito à tarde.",
+    "gen_seconds": 14.252,
+    "audio_seconds": 8.08,
+    "rtf": 1.764
+  },
+  {
+    "id": "s02",
+    "cat": "cotidiano",
+    "wer": 0.0526,
+    "cer": 0.0532,
+    "hyp": "Já passou na padaria? Se der tempo, traz pão francês e meio quilo de queijo Minas, por favor.",
+    "gen_seconds": 10.234,
+    "audio_seconds": 5.92,
+    "rtf": 1.729
+  },
+  {
+    "id": "s03",
+    "cat": "nasais",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "A mãe guardou o pão no armário da cozinha, enquanto o irmão cantava uma canção antiga com o coração apertado.",
+    "gen_seconds": 10.501,
+    "audio_seconds": 6.0,
+    "rtf": 1.75
+  },
+  {
+    "id": "s04",
+    "cat": "numeros",
+    "wer": 1.0333,
+    "cer": 0.869,
+    "hyp": "Eu acho que é melhor não ativar o botão de ativar. A situação é muito difícil. Eu espero que vocês tenham gostado. Eu espero que vocês tenham gostado do vídeo. Até a próxima.",
+    "gen_seconds": 17.24,
+    "audio_seconds": 9.68,
+    "rtf": 1.781
+  },
+  {
+    "id": "s05",
+    "cat": "numeros",
+    "wer": 0.0385,
+    "cer": 0.0071,
+    "hyp": "O orçamento total do projeto é de R$ 1.250.000, dos quais 37,5% vem de recursos federais.",
+    "gen_seconds": 15.313,
+    "audio_seconds": 8.56,
+    "rtf": 1.789
+  },
+  {
+    "id": "s06",
+    "cat": "nomes",
+    "wer": 0.0588,
+    "cer": 0.0185,
+    "hyp": "Saímos de Florianópolis, passamos por Itacoaquecetuba e terminamos a viagem em Mossoró, no Rio Grande do Norte.",
+    "gen_seconds": 16.151,
+    "audio_seconds": 8.56,
+    "rtf": 1.887
+  },
+  {
+    "id": "s07",
+    "cat": "nomes",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "Na mesa estavam João Guimarães Rosa, Cecília Meireles, Graciliano Ramos e Clarice Lispector.",
+    "gen_seconds": 16.007,
+    "audio_seconds": 8.48,
+    "rtf": 1.888
+  },
+  {
+    "id": "s08",
+    "cat": "siglas",
+    "wer": 0.4211,
+    "cer": 0.3678,
+    "hyp": "já sedilados por listas do TAR, o Precicor, projeto ao CNPq e a CAPES, com apoio da Funcap e do IBGE.",
+    "gen_seconds": 15.316,
+    "audio_seconds": 8.48,
+    "rtf": 1.806
+  },
+  {
+    "id": "s09",
+    "cat": "abreviacoes",
+    "wer": 0.5294,
+    "cer": 0.2785,
+    "hyp": "Doutor Paulo e a prova. Anal alto e seu íon às 8, conforme o artigo 5º do regulamento.",
+    "gen_seconds": 11.449,
+    "audio_seconds": 6.16,
+    "rtf": 1.859
+  },
+  {
+    "id": "s10",
+    "cat": "academico",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "Considere a matriz jacobiana do sistema. Se todos os autovalores tiverem parte real negativa, o equilíbrio é assintoticamente estável.",
+    "gen_seconds": 18.075,
+    "audio_seconds": 9.84,
+    "rtf": 1.837
+  },
+  {
+    "id": "s11",
+    "cat": "academico",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "O algoritmo de ramificação e poda reduz o espaço de busca ao descartar subárvores cujas restrições de distância não podem ser satisfeitas.",
+    "gen_seconds": 18.323,
+    "audio_seconds": 10.56,
+    "rtf": 1.735
+  },
+  {
+    "id": "s12",
+    "cat": "estrangeirismos",
+    "wer": 0.0476,
+    "cer": 0.0093,
+    "hyp": "Diz o deploy do software no servidor, mas o feedback do time de marketing só chega depois do meeting de sexta.",
+    "gen_seconds": 14.728,
+    "audio_seconds": 8.24,
+    "rtf": 1.787
+  },
+  {
+    "id": "s13",
+    "cat": "entonacao",
+    "wer": 0.3125,
+    "cer": 0.2299,
+    "hyp": "Sim, você não sabia. Eu avisei três vezes. Por Altai Jumben, vamos resolver isso agora mesmo.",
+    "gen_seconds": 12.293,
+    "audio_seconds": 6.88,
+    "rtf": 1.787
+  },
+  {
+    "id": "s14",
+    "cat": "entonacao",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "Será que ela vem? Talvez sim, talvez não. Depende muito do trânsito na avenida.",
+    "gen_seconds": 10.259,
+    "audio_seconds": 5.36,
+    "rtf": 1.914
+  },
+  {
+    "id": "s15",
+    "cat": "trava-lingua",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "O rato roeu a roupa do rei de Roma e a rainha, com raiva, resolveu remendar.",
+    "gen_seconds": 12.344,
+    "audio_seconds": 6.88,
+    "rtf": 1.794
+  },
+  {
+    "id": "s16",
+    "cat": "acentos",
+    "wer": 0.0769,
+    "cer": 0.0476,
+    "hyp": "A hélice crítica do fenômeno físico exigiu paciência, prática e uma lógica impecável.",
+    "gen_seconds": 12.05,
+    "audio_seconds": 6.32,
+    "rtf": 1.907
+  },
+  {
+    "id": "s17",
+    "cat": "regional",
+    "wer": 0.2667,
+    "cer": 0.1111,
+    "hyp": "aquele forró na praça e tava retado demais, a gente dançou até o sol raiar",
+    "gen_seconds": 7.913,
+    "audio_seconds": 4.16,
+    "rtf": 1.902
+  },
+  {
+    "id": "s18",
+    "cat": "pontuacao",
+    "wer": 0.3846,
+    "cer": 0.2658,
+    "hyp": "Andelila, primeiro o que deixou nas mãos, depois separe os ingredientes, farinha, ovos, leite e açúcar.",
+    "gen_seconds": 14.134,
+    "audio_seconds": 8.16,
+    "rtf": 1.732
+  },
+  {
+    "id": "s19",
+    "cat": "longa",
+    "wer": 0.037,
+    "cer": 0.0439,
+    "hyp": "Quando a chuva finalmente chegou ao sertão, depois de meses de seca, os moradores saíram às Ohaichon para comemorar. As crianças correram pelos terreiros molhados, os mais velhos agradeceram em silêncio, e o cheiro de terra úmida Ohaichon conta de tudo, como se a própria paisagem respirasse aliviada depois de tanto tempo de espera.",
+    "gen_seconds": 35.556,
+    "audio_seconds": 20.96,
+    "rtf": 1.696
+  },
+  {
+    "id": "s20",
+    "cat": "longa",
+    "wer": 0.2075,
+    "cer": 0.1343,
+    "hyp": "De trabalho, propomos um método iterativo para resolver sistemas lineares esparsos de grande porte, combinando um pré-condicionador de baixo posto com uma estratégia de reinício adaptativo, e mostro Hoftiswan, por meio de Hoftiswan num Hoftiswan em problemas de reservatórios de petróleo. E é que o tempo total de Hoftiswan pode ser reduzido em até 40%.",
+    "gen_seconds": 42.405,
+    "audio_seconds": 24.96,
+    "rtf": 1.699
+  }
+]

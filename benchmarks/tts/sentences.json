@@ -1,0 +1,22 @@
+[
+  {"id": "s01", "cat": "cotidiano", "text": "Bom dia! Hoje o céu amanheceu nublado, mas a previsão diz que vai abrir um sol bonito à tarde."},
+  {"id": "s02", "cat": "cotidiano", "text": "Você já passou na padaria? Se der tempo, traz pão francês e meio quilo de queijo minas, por favor."},
+  {"id": "s03", "cat": "nasais", "text": "A mãe guardou o pão no armário da cozinha, enquanto o irmão cantava uma canção antiga com o coração apertado."},
+  {"id": "s04", "cat": "numeros", "text": "A reunião foi marcada para o dia 15 de março de 2027, às 14h30, na sala 204 do bloco 910."},
+  {"id": "s05", "cat": "numeros", "text": "O orçamento total do projeto é de R$ 1.250.000,00, dos quais 37,5% vêm de recursos federais."},
+  {"id": "s06", "cat": "nomes", "text": "Saímos de Florianópolis, passamos por Itaquaquecetuba e terminamos a viagem em Mossoró, no Rio Grande do Norte."},
+  {"id": "s07", "cat": "nomes", "text": "Na mesa estavam João Guimarães Rosa, Cecília Meireles, Graciliano Ramos e Clarice Lispector."},
+  {"id": "s08", "cat": "siglas", "text": "O pesquisador da UFC submeteu o projeto ao CNPq e à CAPES, com apoio da FUNCAP e do IBGE."},
+  {"id": "s09", "cat": "abreviacoes", "text": "O Dr. Paulo e a Profa. Ana chegaram às 8h, conforme o art. 5º do regulamento."},
+  {"id": "s10", "cat": "academico", "text": "Considere a matriz jacobiana do sistema; se todos os autovalores tiverem parte real negativa, o equilíbrio é assintoticamente estável."},
+  {"id": "s11", "cat": "academico", "text": "O algoritmo de ramificação e poda reduz o espaço de busca ao descartar subárvores cujas restrições de distância não podem ser satisfeitas."},
+  {"id": "s12", "cat": "estrangeirismos", "text": "Fiz o deploy do software no servidor, mas o feedback do time de marketing só chega depois do meeting de sexta."},
+  {"id": "s13", "cat": "entonacao", "text": "Como assim você não sabia? Eu avisei três vezes! Tudo bem, vamos resolver isso agora mesmo."},
+  {"id": "s14", "cat": "entonacao", "text": "Será que ela vem? Talvez sim, talvez não... depende muito do trânsito na avenida."},
+  {"id": "s15", "cat": "trava-lingua", "text": "O rato roeu a roupa do rei de Roma, e a rainha, com raiva, resolveu remendar."},
+  {"id": "s16", "cat": "acentos", "text": "A análise crítica do fenômeno físico exigiu paciência, prática e uma lógica impecável."},
+  {"id": "s17", "cat": "regional", "text": "Rapaz, aquele forró na praça estava arretado demais, a gente dançou até o sol raiar."},
+  {"id": "s18", "cat": "pontuacao", "text": "Primeiro, lave as mãos; depois, separe os ingredientes: farinha, ovos, leite e açúcar."},
+  {"id": "s19", "cat": "longa", "text": "Quando a chuva finalmente chegou ao sertão, depois de meses de seca, os moradores saíram às ruas para comemorar, as crianças correram pelos terreiros molhados, os mais velhos agradeceram em silêncio, e o cheiro de terra úmida tomou conta de tudo, como se a própria paisagem respirasse aliviada depois de tanto tempo de espera."},
+  {"id": "s20", "cat": "longa", "text": "Neste trabalho, propomos um método iterativo para resolver sistemas lineares esparsos de grande porte, combinando um precondicionador de baixo posto com uma estratégia de reinício adaptativo, e mostramos, por meio de experimentos numéricos em problemas de reservatórios de petróleo, que o tempo total de solução pode ser reduzido em até quarenta por cento."}
+]

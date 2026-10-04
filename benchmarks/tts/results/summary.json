@@ -1,0 +1,224 @@
+{
+  "whisper": "large-v3",
+  "control_ref_wav": {
+    "wer": 0.0,
+    "cer": 0.0
+  },
+  "engines": {
+    "fish-s2-q6_k": {
+      "n": 20,
+      "wer_all": 0.0367,
+      "cer_all": 0.0211,
+      "wer_core": 0.0165,
+      "cer_core": 0.0038,
+      "rtf": 2.018,
+      "audio_seconds": 163.9,
+      "peak_vram_mib": 7747,
+      "load_seconds": 26.19,
+      "worst": [
+        {
+          "id": "s05",
+          "cat": "numeros",
+          "wer": 0.1923,
+          "cer": 0.156,
+          "hyp": "O orçamento total do projeto é de R$ 1,250 mil, dos quais 37,5% vem de recursos federais.",
+          "gen_seconds": 18.365,
+          "audio_seconds": 9.288,
+          "rtf": 1.977
+        },
+        {
+          "id": "s09",
+          "cat": "abreviacoes",
+          "wer": 0.1765,
+          "cer": 0.1139,
+          "hyp": "O doutor Paulo e a profa Ana chegaram às 8h, conforme o ART, quinto do regulamento.",
+          "gen_seconds": 11.968,
+          "audio_seconds": 7.105,
+          "rtf": 1.684
+        },
+        {
+          "id": "s08",
+          "cat": "siglas",
+          "wer": 0.1053,
+          "cer": 0.0345,
+          "hyp": "O pesquisador da UFC submeteu o projeto ao CNPq e a Capes, com apoio da Funcap do IBGE.",
+          "gen_seconds": 11.952,
+          "audio_seconds": 7.105,
+          "rtf": 1.682
+        }
+      ]
+    },
+    "fish-s2.1-api": {
+      "n": 20,
+      "wer_all": 0.0206,
+      "cer_all": 0.011,
+      "wer_core": 0.011,
+      "cer_core": 0.0024,
+      "rtf": 0.35,
+      "audio_seconds": 165.3,
+      "peak_vram_mib": null,
+      "load_seconds": 0.0,
+      "worst": [
+        {
+          "id": "s05",
+          "cat": "numeros",
+          "wer": 0.0769,
+          "cer": 0.0355,
+          "hyp": "O orçamento total do projeto é de R$ 1.150.000, dos quais 37,5% vem de recursos federais.",
+          "gen_seconds": 2.792,
+          "audio_seconds": 9.352,
+          "rtf": 0.299
+        },
+        {
+          "id": "s07",
+          "cat": "nomes",
+          "wer": 0.0769,
+          "cer": 0.0112,
+          "hyp": "Na mesa estavam João Guimarães Rosa, Cecília Meireles, Draciliano Ramos e Clarice Lispector.",
+          "gen_seconds": 2.734,
+          "audio_seconds": 6.426,
+          "rtf": 0.425
+        },
+        {
+          "id": "s04",
+          "cat": "numeros",
+          "wer": 0.0667,
+          "cer": 0.0897,
+          "hyp": "A reunião foi marcada para o dia 15 de março de 2027, às 14h, na sala 2 e 4 do Bloco 910.",
+          "gen_seconds": 3.144,
+          "audio_seconds": 8.333,
+          "rtf": 0.377
+        }
+      ]
+    },
+    "gemini-flash-lite": {
+      "n": 20,
+      "wer_all": 0.0367,
+      "cer_all": 0.0183,
+      "wer_core": 0.022,
+      "cer_core": 0.0057,
+      "rtf": 0.523,
+      "audio_seconds": 187.9,
+      "peak_vram_mib": null,
+      "load_seconds": 0.0,
+      "worst": [
+        {
+          "id": "s05",
+          "cat": "numeros",
+          "wer": 0.2308,
+          "cer": 0.1773,
+          "hyp": "O orçamento total do projeto é de R$ 1,25 milhão, dos quais 37,5% vem de recursos federais.",
+          "gen_seconds": 5.091,
+          "audio_seconds": 10.2,
+          "rtf": 0.499
+        },
+        {
+          "id": "s09",
+          "cat": "abreviacoes",
+          "wer": 0.1176,
+          "cer": 0.1013,
+          "hyp": "O Dr. Paulo e a professora Ana chegaram às 8 horas, conforme o artigo 5º do Regulamento.",
+          "gen_seconds": 3.622,
+          "audio_seconds": 6.8,
+          "rtf": 0.533
+        },
+        {
+          "id": "s11",
+          "cat": "academico",
+          "wer": 0.0909,
+          "cer": 0.0073,
+          "hyp": "O algoritmo de ramificação e poda reduz o espaço de busca ao descartar sub-árvores cujas restrições de distância não podem ser satisfeitas.",
+          "gen_seconds": 5.301,
+          "audio_seconds": 10.48,
+          "rtf": 0.506
+        }
+      ]
+    },
+    "qwen3-1.7b": {
+      "n": 20,
+      "wer_all": 0.0367,
+      "cer_all": 0.0195,
+      "wer_core": 0.0138,
+      "cer_core": 0.0029,
+      "rtf": 1.769,
+      "audio_seconds": 178.4,
+      "peak_vram_mib": 5671,
+      "load_seconds": 2.93,
+      "worst": [
+        {
+          "id": "s05",
+          "cat": "numeros",
+          "wer": 0.2308,
+          "cer": 0.1844,
+          "hyp": "O orçamento total do projeto é de R$ 1.000,50, dos quais 37,5% vêm de recursos federais.",
+          "gen_seconds": 16.574,
+          "audio_seconds": 9.6,
+          "rtf": 1.726
+        },
+        {
+          "id": "s09",
+          "cat": "abreviacoes",
+          "wer": 0.1765,
+          "cer": 0.1139,
+          "hyp": "O doutor Paulo e a profa. Ana chegaram às 8 horas e, conforme o artigo 5º do regulamento.",
+          "gen_seconds": 14.653,
+          "audio_seconds": 7.92,
+          "rtf": 1.85
+        },
+        {
+          "id": "s07",
+          "cat": "nomes",
+          "wer": 0.0769,
+          "cer": 0.0112,
+          "hyp": "Na mesa estavam João Guimarães Rosa, Cecília Maireles, Graciliano Ramos e Clarice Lispector.",
+          "gen_seconds": 12.662,
+          "audio_seconds": 6.32,
+          "rtf": 2.004
+        }
+      ]
+    },
+    "voxtral-int4": {
+      "n": 20,
+      "wer_all": 0.1858,
+      "cer_all": 0.1274,
+      "wer_core": 0.1102,
+      "cer_core": 0.0786,
+      "rtf": 1.781,
+      "audio_seconds": 182.2,
+      "peak_vram_mib": 7909,
+      "load_seconds": 60.15,
+      "worst": [
+        {
+          "id": "s04",
+          "cat": "numeros",
+          "wer": 1.0333,
+          "cer": 0.869,
+          "hyp": "Eu acho que é melhor não ativar o botão de ativar. A situação é muito difícil. Eu espero que vocês tenham gostado. Eu espero que vocês tenham gostado do vídeo. Até a próxima.",
+          "gen_seconds": 17.24,
+          "audio_seconds": 9.68,
+          "rtf": 1.781
+        },
+        {
+          "id": "s09",
+          "cat": "abreviacoes",
+          "wer": 0.5294,
+          "cer": 0.2785,
+          "hyp": "Doutor Paulo e a prova. Anal alto e seu íon às 8, conforme o artigo 5º do regulamento.",
+          "gen_seconds": 11.449,
+          "audio_seconds": 6.16,
+          "rtf": 1.859
+        },
+        {
+          "id": "s08",
+          "cat": "siglas",
+          "wer": 0.4211,
+          "cer": 0.3678,
+          "hyp": "já sedilados por listas do TAR, o Precicor, projeto ao CNPq e a CAPES, com apoio da Funcap e do IBGE.",
+          "gen_seconds": 15.316,
+          "audio_seconds": 8.48,
+          "rtf": 1.806
+        }
+      ]
+    }
+  }
+}

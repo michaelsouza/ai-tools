@@ -1,0 +1,133 @@
+{
+  "engine": "qwen3-1.7b",
+  "config": {
+    "model": "/home/michael/gitrepos/ai-tools/models/tts-bench/qwen3-tts-1.7b-base",
+    "dtype": "bf16",
+    "mode": "voice clone (ICL)",
+    "seed": 0
+  },
+  "load_seconds": 2.93,
+  "peak_vram_mib": 5671,
+  "sentences": [
+    {
+      "id": "s01",
+      "gen_seconds": 12.165,
+      "audio_seconds": 6.88,
+      "rtf": 1.768
+    },
+    {
+      "id": "s02",
+      "gen_seconds": 13.589,
+      "audio_seconds": 8.24,
+      "rtf": 1.649
+    },
+    {
+      "id": "s03",
+      "gen_seconds": 13.098,
+      "audio_seconds": 7.52,
+      "rtf": 1.742
+    },
+    {
+      "id": "s04",
+      "gen_seconds": 16.392,
+      "audio_seconds": 9.52,
+      "rtf": 1.722
+    },
+    {
+      "id": "s05",
+      "gen_seconds": 16.574,
+      "audio_seconds": 9.6,
+      "rtf": 1.726
+    },
+    {
+      "id": "s06",
+      "gen_seconds": 14.675,
+      "audio_seconds": 7.76,
+      "rtf": 1.891
+    },
+    {
+      "id": "s07",
+      "gen_seconds": 12.662,
+      "audio_seconds": 6.32,
+      "rtf": 2.004
+    },
+    {
+      "id": "s08",
+      "gen_seconds": 15.643,
+      "audio_seconds": 7.44,
+      "rtf": 2.103
+    },
+    {
+      "id": "s09",
+      "gen_seconds": 14.653,
+      "audio_seconds": 7.92,
+      "rtf": 1.85
+    },
+    {
+      "id": "s10",
+      "gen_seconds": 18.095,
+      "audio_seconds": 9.36,
+      "rtf": 1.933
+    },
+    {
+      "id": "s11",
+      "gen_seconds": 17.519,
+      "audio_seconds": 9.04,
+      "rtf": 1.938
+    },
+    {
+      "id": "s12",
+      "gen_seconds": 12.762,
+      "audio_seconds": 6.88,
+      "rtf": 1.855
+    },
+    {
+      "id": "s13",
+      "gen_seconds": 13.238,
+      "audio_seconds": 7.76,
+      "rtf": 1.706
+    },
+    {
+      "id": "s14",
+      "gen_seconds": 13.227,
+      "audio_seconds": 7.84,
+      "rtf": 1.687
+    },
+    {
+      "id": "s15",
+      "gen_seconds": 10.946,
+      "audio_seconds": 6.56,
+      "rtf": 1.669
+    },
+    {
+      "id": "s16",
+      "gen_seconds": 10.056,
+      "audio_seconds": 6.0,
+      "rtf": 1.676
+    },
+    {
+      "id": "s17",
+      "gen_seconds": 10.68,
+      "audio_seconds": 6.24,
+      "rtf": 1.712
+    },
+    {
+      "id": "s18",
+      "gen_seconds": 12.598,
+      "audio_seconds": 7.44,
+      "rtf": 1.693
+    },
+    {
+      "id": "s19",
+      "gen_seconds": 31.359,
+      "audio_seconds": 18.8,
+      "rtf": 1.668
+    },
+    {
+      "id": "s20",
+      "gen_seconds": 35.716,
+      "audio_seconds": 21.28,
+      "rtf": 1.678
+    }
+  ]
+}

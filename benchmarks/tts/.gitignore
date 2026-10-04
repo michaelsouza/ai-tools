@@ -1,0 +1,6 @@
+data/
+results/audio/
+results/logs/
+results/*.log
+results/listening/
+__pycache__/

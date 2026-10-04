@@ -1,0 +1,202 @@
+[
+  {
+    "id": "s01",
+    "cat": "cotidiano",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "Bom dia! Hoje o céu amanheceu nublado, mas a previsão diz que vai abrir um sol bonito à tarde.",
+    "gen_seconds": 4.337,
+    "audio_seconds": 7.64,
+    "rtf": 0.568
+  },
+  {
+    "id": "s02",
+    "cat": "cotidiano",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "Você já passou na padaria? Se der tempo, traz pão francês e meio quilo de queijo Minas, por favor.",
+    "gen_seconds": 4.085,
+    "audio_seconds": 6.2,
+    "rtf": 0.659
+  },
+  {
+    "id": "s03",
+    "cat": "nasais",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "A mãe guardou o pão no armário da cozinha, enquanto o irmão cantava uma canção antiga com o coração apertado.",
+    "gen_seconds": 4.703,
+    "audio_seconds": 8.08,
+    "rtf": 0.582
+  },
+  {
+    "id": "s04",
+    "cat": "numeros",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "A reunião foi marcada para o dia 15 de março de 2027, às 14h30, na sala 204 do Bloco 910.",
+    "gen_seconds": 5.073,
+    "audio_seconds": 9.72,
+    "rtf": 0.522
+  },
+  {
+    "id": "s05",
+    "cat": "numeros",
+    "wer": 0.2308,
+    "cer": 0.1773,
+    "hyp": "O orçamento total do projeto é de R$ 1,25 milhão, dos quais 37,5% vem de recursos federais.",
+    "gen_seconds": 5.091,
+    "audio_seconds": 10.2,
+    "rtf": 0.499
+  },
+  {
+    "id": "s06",
+    "cat": "nomes",
+    "wer": 0.0588,
+    "cer": 0.0463,
+    "hyp": "Saímos de Florianópolis, passamos por Itacoacetuba e terminamos a viagem em Mossoró, no Rio Grande do Norte.",
+    "gen_seconds": 4.256,
+    "audio_seconds": 7.8,
+    "rtf": 0.546
+  },
+  {
+    "id": "s07",
+    "cat": "nomes",
+    "wer": 0.0769,
+    "cer": 0.0112,
+    "hyp": "Na mesa estavam João Guimarães Rosa, Cecília Meirelles, Graciliano Ramos e Clarice Lispector.",
+    "gen_seconds": 4.263,
+    "audio_seconds": 7.96,
+    "rtf": 0.536
+  },
+  {
+    "id": "s08",
+    "cat": "siglas",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "O pesquisador da UFC submeteu o projeto ao CNPq e à Capes, com apoio da Funcap e do IBGE.",
+    "gen_seconds": 5.118,
+    "audio_seconds": 8.36,
+    "rtf": 0.612
+  },
+  {
+    "id": "s09",
+    "cat": "abreviacoes",
+    "wer": 0.1176,
+    "cer": 0.1013,
+    "hyp": "O Dr. Paulo e a professora Ana chegaram às 8 horas, conforme o artigo 5º do Regulamento.",
+    "gen_seconds": 3.622,
+    "audio_seconds": 6.8,
+    "rtf": 0.533
+  },
+  {
+    "id": "s10",
+    "cat": "academico",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "Considere a matriz jacobiana do sistema. Se todos os autovalores tiverem parte real negativa, o equilíbrio é assintoticamente estável.",
+    "gen_seconds": 5.074,
+    "audio_seconds": 10.28,
+    "rtf": 0.494
+  },
+  {
+    "id": "s11",
+    "cat": "academico",
+    "wer": 0.0909,
+    "cer": 0.0073,
+    "hyp": "O algoritmo de ramificação e poda reduz o espaço de busca ao descartar sub-árvores cujas restrições de distância não podem ser satisfeitas.",
+    "gen_seconds": 5.301,
+    "audio_seconds": 10.48,
+    "rtf": 0.506
+  },
+  {
+    "id": "s12",
+    "cat": "estrangeirismos",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "Fiz o deploy do software no servidor, mas o feedback do time de marketing só chega depois do meeting de sexta.",
+    "gen_seconds": 4.102,
+    "audio_seconds": 6.56,
+    "rtf": 0.625
+  },
+  {
+    "id": "s13",
+    "cat": "entonacao",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "Como assim você não sabia? Eu avisei três vezes. Tudo bem, vamos resolver isso agora mesmo.",
+    "gen_seconds": 4.373,
+    "audio_seconds": 7.4,
+    "rtf": 0.591
+  },
+  {
+    "id": "s14",
+    "cat": "entonacao",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "Será que ela vem? Talvez sim, talvez não. Depende muito do trânsito na avenida.",
+    "gen_seconds": 3.517,
+    "audio_seconds": 6.32,
+    "rtf": 0.557
+  },
+  {
+    "id": "s15",
+    "cat": "trava-lingua",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "O rato roeu a roupa do rei de Roma e a rainha, com raiva, resolveu remendar.",
+    "gen_seconds": 4.038,
+    "audio_seconds": 6.48,
+    "rtf": 0.623
+  },
+  {
+    "id": "s16",
+    "cat": "acentos",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "A análise crítica do fenômeno físico exigiu paciência, prática e uma lógica impecável.",
+    "gen_seconds": 4.228,
+    "audio_seconds": 8.12,
+    "rtf": 0.521
+  },
+  {
+    "id": "s17",
+    "cat": "regional",
+    "wer": 0.0667,
+    "cer": 0.0247,
+    "hyp": "Rapaz, aquele forró na praça tava arretado demais. A gente dançou até o sol raiar.",
+    "gen_seconds": 4.225,
+    "audio_seconds": 6.24,
+    "rtf": 0.677
+  },
+  {
+    "id": "s18",
+    "cat": "pontuacao",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "Primeiro, lave as mãos. Depois, separe os ingredientes. Farinha, ovos, leite e açúcar.",
+    "gen_seconds": 5.577,
+    "audio_seconds": 8.48,
+    "rtf": 0.658
+  },
+  {
+    "id": "s19",
+    "cat": "longa",
+    "wer": 0.0,
+    "cer": 0.0,
+    "hyp": "Quando a chuva finalmente chegou ao sertão, depois de meses de seca, os moradores saíram às ruas para comemorar. As crianças correram pelos terreiros molhados, os mais velhos agradeceram em silêncio, e o cheiro de terra úmida tomou conta de tudo, como se a própria paisagem respirasse aliviada depois de tanto tempo de espera.",
+    "gen_seconds": 9.357,
+    "audio_seconds": 22.76,
+    "rtf": 0.411
+  },
+  {
+    "id": "s20",
+    "cat": "longa",
+    "wer": 0.0566,
+    "cer": 0.0086,
+    "hyp": "Neste trabalho, propomos um método iterativo para resolver sistemas lineares esparsos de grande porte, combinando um pré-condicionador de baixo posto com uma estratégia de reinício adaptativo. E mostramos, por meio de experimentos numéricos em problemas de reservatório de petróleo, que o tempo total de solução pode ser reduzido em até 40%.",
+    "gen_seconds": 7.924,
+    "audio_seconds": 22.0,
+    "rtf": 0.36
+  }
+]
