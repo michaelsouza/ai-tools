@@ -1,36 +1,52 @@
 #!/usr/bin/env python3
 """
-Markdown to narration audio using Qwen3-TTS CustomVoice.
+Markdown to narration audio using Gemini TTS (OpenRouter, default) or local Qwen3-TTS CustomVoice.
 
 Usage:
-    python tools/md2audio.py article.md --language en
-    python tools/md2audio.py article.md --language pt-br -o article.wav
+    python tools/md2audio.py article.md --language pt-br
+    python tools/md2audio.py article.md --language pt-br -o article.wav --speaker Leda
     python tools/md2audio.py article.md --language en --dry-run
-    python tools/md2audio.py article.md --language en --speaker Aiden --instruct "Calm lecture style."
+    python tools/md2audio.py article.md --language en --engine qwen --speaker Aiden --instruct "Calm lecture style."
 
 Setup:
-    pip install -U qwen-tts soundfile torch
-    huggingface-cli download Qwen/Qwen3-TTS-Tokenizer-12Hz --local-dir models/Qwen3-TTS-Tokenizer-12Hz
-    huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+    gemini (default): OPENROUTER_API_KEY in the repo .env; pip install requests python-dotenv
+    qwen (local GPU):
+        pip install -U qwen-tts soundfile torch
+        huggingface-cli download Qwen/Qwen3-TTS-Tokenizer-12Hz --local-dir models/Qwen3-TTS-Tokenizer-12Hz
+        huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+
+Engine choice (pt-BR benchmark, blind listening 1-5): Gemini 3.8 Flash-Lite TTS 4.95, Qwen3-TTS 1.7B 3.25;
+see benchmarks/tts/README.md.
 """
 
 import argparse
+import os
 import re
 import shutil
 import sys
 import tempfile
 import time
 import wave
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 
+from dotenv import load_dotenv
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
+ENGINES = ("gemini", "qwen")
+DEFAULT_ENGINE = "gemini"
+GEMINI_MODEL = "google/gemini-3.8-flash-lite-tts"
+GEMINI_SPEAKER = "Kore"
+GEMINI_SAMPLE_RATE = 24000  # OpenRouter returns Gemini audio as raw PCM: 24 kHz, mono, 16-bit little-endian
+OPENROUTER_SPEECH_URL = "https://openrouter.ai/api/v1/audio/speech"
+GEMINI_RETRIES = 4
+DEFAULT_WORKERS = 4
 RECOMMENDED_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
 DEFAULT_MODEL = "models/Qwen3-TTS-12Hz-0.6B-CustomVoice"
 DEFAULT_SPEAKER = "ryan"
@@ -296,19 +312,73 @@ def resolve_model_name_or_path(model_name_or_path: str) -> str:
     return model_name_or_path
 
 
-def synthesize_chunks(
+def write_pcm_wav(path: Path, pcm: bytes, sample_rate: int) -> None:
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(pcm)
+
+
+def gemini_speech(text: str, model: str, voice: str, api_key: str) -> bytes:
+    """One OpenRouter TTS request; retries rate limits, server errors and dropped connections."""
+    import requests
+
+    body = {"model": model, "input": text, "voice": voice, "response_format": "pcm"}
+    headers = {"Authorization": f"Bearer {api_key}"}
+    for attempt in range(1, GEMINI_RETRIES + 1):
+        try:
+            response = requests.post(OPENROUTER_SPEECH_URL, headers=headers, json=body, timeout=300)
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == GEMINI_RETRIES:
+                raise
+        else:
+            if response.ok and response.content:
+                return response.content
+            retryable = response.status_code == 429 or response.status_code >= 500
+            if not retryable or attempt == GEMINI_RETRIES:
+                raise RuntimeError(f"OpenRouter TTS failed (HTTP {response.status_code}): {response.text[:300]}")
+        time.sleep(2**attempt)
+    raise RuntimeError("OpenRouter TTS failed after retries.")
+
+
+def synthesize_gemini(
     chunks: Sequence[str],
-    output_path: Path,
+    temp_dir: Path,
+    model: str,
+    speaker: str,
+    workers: int,
+    advance,
+) -> Tuple[List[Path], float, int]:
+    """Synthesize chunks with parallel OpenRouter requests; returns (chunk paths, load seconds, requests)."""
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY not set (repo .env). Or pass --engine qwen to run locally.")
+
+    chunk_paths = [temp_dir / f"chunk_{index:04d}.wav" for index in range(1, len(chunks) + 1)]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(gemini_speech, chunk, model, speaker, api_key): path for chunk, path in zip(chunks, chunk_paths)
+        }
+        for future in as_completed(futures):
+            write_pcm_wav(futures[future], future.result(), GEMINI_SAMPLE_RATE)
+            advance(1)
+    return chunk_paths, 0.0, len(chunks)
+
+
+def synthesize_qwen(
+    chunks: Sequence[str],
+    temp_dir: Path,
     language: str,
     model_name_or_path: str,
     speaker: str,
     instruct: Optional[str],
     device: str,
     batch_size: int,
-    keep_temp: bool,
     use_flash_attention: bool,
-    console: Console,
-) -> SynthesisMetrics:
+    advance,
+) -> Tuple[List[Path], float, int]:
+    """Synthesize chunks with local Qwen3-TTS CustomVoice; returns (chunk paths, load seconds, batches)."""
     try:
         import soundfile as sf
     except ImportError as exc:
@@ -316,7 +386,6 @@ def synthesize_chunks(
             "soundfile is required to write Qwen3-TTS audio. Install it with: pip install soundfile"
         ) from exc
 
-    started_at = time.perf_counter()
     resolved_device = resolve_device(device)
     load_started_at = time.perf_counter()
     resolved_model = resolve_model_name_or_path(model_name_or_path)
@@ -326,11 +395,44 @@ def synthesize_chunks(
     if supported_speakers and speaker not in supported_speakers:
         raise RuntimeError(f"Unsupported speaker '{speaker}'. Supported speakers: {', '.join(supported_speakers)}")
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    temp_dir = Path(tempfile.mkdtemp(prefix=f"{output_path.stem}_chunks_", dir=str(output_path.parent)))
     chunk_paths: List[Path] = []
     batches = 0
-    synthesis_seconds = 0.0
+    for batch_start in range(0, len(chunks), batch_size):
+        batch = chunks[batch_start : batch_start + batch_size]
+        wavs, sample_rate = model.generate_custom_voice(
+            text=list(batch),
+            language=[LANGUAGE_NAMES[language]] * len(batch),
+            speaker=[speaker] * len(batch),
+            instruct=[instruct or ""] * len(batch),
+        )
+        batches += 1
+        for offset, wav in enumerate(wavs):
+            index = batch_start + offset + 1
+            chunk_path = temp_dir / f"chunk_{index:04d}.wav"
+            sf.write(str(chunk_path), wav, sample_rate)
+            chunk_paths.append(chunk_path)
+        advance(len(batch))
+    return chunk_paths, load_seconds, batches
+
+
+def synthesize_chunks(
+    chunks: Sequence[str],
+    output_path: Path,
+    language: str,
+    engine: str,
+    model_name_or_path: str,
+    speaker: str,
+    instruct: Optional[str],
+    device: str,
+    batch_size: int,
+    workers: int,
+    keep_temp: bool,
+    use_flash_attention: bool,
+    console: Console,
+) -> SynthesisMetrics:
+    started_at = time.perf_counter()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_dir = Path(tempfile.mkdtemp(prefix=f"{output_path.stem}_chunks_", dir=str(output_path.parent)))
     concat_seconds = 0.0
 
     try:
@@ -341,23 +443,28 @@ def synthesize_chunks(
             console=console,
         ) as progress:
             task = progress.add_task("Synthesizing chunks...", total=len(chunks))
-            for batch_start in range(0, len(chunks), batch_size):
-                batch = chunks[batch_start : batch_start + batch_size]
-                batch_started_at = time.perf_counter()
-                wavs, sample_rate = model.generate_custom_voice(
-                    text=list(batch),
-                    language=[LANGUAGE_NAMES[language]] * len(batch),
-                    speaker=[speaker] * len(batch),
-                    instruct=[instruct or ""] * len(batch),
+
+            def advance(count: int) -> None:
+                progress.advance(task, advance=count)
+
+            if engine == "gemini":
+                chunk_paths, load_seconds, batches = synthesize_gemini(
+                    chunks, temp_dir, model_name_or_path, speaker, workers, advance
                 )
-                synthesis_seconds += time.perf_counter() - batch_started_at
-                batches += 1
-                for offset, wav in enumerate(wavs):
-                    index = batch_start + offset + 1
-                    chunk_path = temp_dir / f"chunk_{index:04d}.wav"
-                    sf.write(str(chunk_path), wav, sample_rate)
-                    chunk_paths.append(chunk_path)
-                progress.advance(task, advance=len(batch))
+            else:
+                chunk_paths, load_seconds, batches = synthesize_qwen(
+                    chunks,
+                    temp_dir,
+                    language,
+                    model_name_or_path,
+                    speaker,
+                    instruct,
+                    device,
+                    batch_size,
+                    use_flash_attention,
+                    advance,
+                )
+        synthesis_seconds = time.perf_counter() - started_at - load_seconds
 
         concat_started_at = time.perf_counter()
         concatenate_wavs(chunk_paths, output_path)
@@ -409,16 +516,18 @@ def wav_duration_seconds(path: Path) -> float:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Convert a Markdown document into narration audio using Qwen3-TTS.",
+        description="Convert a Markdown document into narration audio using Gemini TTS (OpenRouter) or local Qwen3-TTS.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s article.md --language en
-  %(prog)s article.md --language pt-br -o article.wav
+  %(prog)s article.md --language pt-br
+  %(prog)s article.md --language pt-br -o article.wav --speaker Leda
   %(prog)s article.md --language en --dry-run
-  %(prog)s article.md --language en --speaker Aiden --instruct "Calm lecture style."
+  %(prog)s article.md --language en --engine qwen --speaker Aiden --instruct "Calm lecture style."
 
-Manual setup:
+Setup:
+  gemini (default): OPENROUTER_API_KEY in the repo .env
+  qwen (local GPU):
   pip install -U qwen-tts soundfile torch
   huggingface-cli download Qwen/Qwen3-TTS-Tokenizer-12Hz --local-dir models/Qwen3-TTS-Tokenizer-12Hz
   huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-0.6B-CustomVoice
@@ -428,30 +537,40 @@ Manual setup:
     parser.add_argument("-o", "--output", type=Path, help="Output WAV file (default: input name with .wav)")
     parser.add_argument("--language", required=True, choices=sorted(LANGUAGE_NAMES), help="Narration language")
     parser.add_argument(
+        "--engine",
+        choices=ENGINES,
+        default=DEFAULT_ENGINE,
+        help=f"TTS engine: gemini (OpenRouter, paid) or qwen (local GPU) (default: {DEFAULT_ENGINE})",
+    )
+    parser.add_argument(
         "--model",
-        default=DEFAULT_MODEL,
-        help=f"Qwen3-TTS model id or local path (default: {DEFAULT_MODEL})",
+        help=f"OpenRouter model id (gemini, default: {GEMINI_MODEL}) or Qwen3-TTS id/local path (qwen, default: {DEFAULT_MODEL})",
     )
     parser.add_argument(
         "--speaker",
-        default=DEFAULT_SPEAKER,
-        help=f"Qwen CustomVoice speaker (default: {DEFAULT_SPEAKER})",
+        help=f"Voice: Gemini voice name (default: {GEMINI_SPEAKER}) or Qwen CustomVoice speaker (default: {DEFAULT_SPEAKER})",
     )
-    parser.add_argument("--instruct", help="Optional narration style instruction")
+    parser.add_argument("--instruct", help="Optional narration style instruction (qwen only)")
     parser.add_argument(
         "--device",
         choices=["auto", "cuda", "cpu"],
         default="auto",
-        help="Runtime device (default: auto)",
+        help="Runtime device for qwen (default: auto)",
     )
     parser.add_argument("--chunk-chars", type=int, default=DEFAULT_CHUNK_CHARS, help="Maximum characters per TTS chunk")
     parser.add_argument(
         "--batch-size",
         type=int,
         default=DEFAULT_BATCH_SIZE,
-        help=f"TTS chunks to synthesize per model call (default: {DEFAULT_BATCH_SIZE})",
+        help=f"TTS chunks to synthesize per Qwen model call (default: {DEFAULT_BATCH_SIZE})",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Print rendered narration chunks without loading Qwen")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=DEFAULT_WORKERS,
+        help=f"Parallel OpenRouter requests for gemini (default: {DEFAULT_WORKERS})",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Print rendered narration chunks without synthesizing")
     parser.add_argument(
         "--keep-temp",
         action="store_true",
@@ -460,21 +579,33 @@ Manual setup:
     parser.add_argument(
         "--flash-attention",
         action="store_true",
-        help="Request FlashAttention 2 when loading the model on CUDA",
+        help="Request FlashAttention 2 when loading the Qwen model on CUDA",
     )
     return parser
 
 
 def main() -> int:
     console = Console()
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
     parser = build_parser()
     args = parser.parse_args()
+    gemini = args.engine == "gemini"
+    model = args.model or (GEMINI_MODEL if gemini else DEFAULT_MODEL)
+    speaker = args.speaker or (GEMINI_SPEAKER if gemini else DEFAULT_SPEAKER)
 
     if args.chunk_chars < 200:
         console.print("[bold red]Error:[/] --chunk-chars must be at least 200")
         return 2
     if args.batch_size < 1:
         console.print("[bold red]Error:[/] --batch-size must be at least 1")
+        return 2
+    if args.workers < 1:
+        console.print("[bold red]Error:[/] --workers must be at least 1")
+        return 2
+    if gemini and args.instruct:
+        console.print(
+            "[bold red]Error:[/] --instruct only works with --engine qwen (OpenRouter TTS has no style field)"
+        )
         return 2
 
     input_path = args.input.expanduser().resolve()
@@ -500,7 +631,15 @@ def main() -> int:
         return 1
 
     if args.dry_run:
-        console.print(Panel(f"Chunks: [cyan]{len(chunks)}[/]", title="Narration Preview", border_style="blue"))
+        characters = sum(len(chunk) for chunk in chunks)
+        console.print(
+            Panel(
+                f"Engine: [cyan]{args.engine}[/] ({model}, voice {speaker}) | "
+                f"Chunks: [cyan]{len(chunks)}[/] | Characters: [cyan]{characters:,}[/]",
+                title="Narration Preview",
+                border_style="blue",
+            )
+        )
         for index, chunk in enumerate(chunks, start=1):
             console.print(f"\n[bold]Chunk {index}[/]")
             console.print(chunk)
@@ -511,11 +650,13 @@ def main() -> int:
             chunks=chunks,
             output_path=output_path,
             language=args.language,
-            model_name_or_path=args.model,
-            speaker=args.speaker,
+            engine=args.engine,
+            model_name_or_path=model,
+            speaker=speaker,
             instruct=args.instruct,
             device=args.device,
             batch_size=args.batch_size,
+            workers=args.workers,
             keep_temp=args.keep_temp,
             use_flash_attention=args.flash_attention,
             console=console,
@@ -534,7 +675,7 @@ def main() -> int:
             f"Audio: [cyan]{metrics.audio_seconds:.1f}s[/] | "
             f"Realtime factor: [cyan]{metrics.realtime_factor:.2f}x[/]\n"
             f"Chunks: [cyan]{metrics.chunks}[/] | "
-            f"Batches: [cyan]{metrics.batches}[/] | "
+            f"{'Requests' if gemini else 'Batches'}: [cyan]{metrics.batches}[/] | "
             f"Load: [cyan]{metrics.load_seconds:.1f}s[/] | "
             f"Synthesis: [cyan]{metrics.synthesis_seconds:.1f}s[/] | "
             f"Concat: [cyan]{metrics.concat_seconds:.1f}s[/]",

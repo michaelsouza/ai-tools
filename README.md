@@ -269,16 +269,25 @@ python tools/audio_transcribe_gui.py
 
 ### `md2audio.py`
 
-Markdown → narration WAV via local Qwen3-TTS CustomVoice.
+Markdown → narration WAV via Gemini TTS on OpenRouter (default) or local Qwen3-TTS CustomVoice.
 
-- Requires explicit `--language en` or `--language pt-br`.
-- Defaults to `models/Qwen3-TTS-12Hz-0.6B-CustomVoice`, speaker `ryan`, and output path `<input>.wav`.
-- Reports elapsed time from model load through final WAV write, plus audio duration and realtime factor.
-- If `qwen-tts` warns that SoX is missing, install the system binary with `sudo apt install sox`.
-- **Flags:** `-o/--output`, `--language`, `--model`, `--speaker`, `--instruct`, `--device`, `--chunk-chars`,
-  `--batch-size`, `--dry-run`, `--keep-temp`, `--flash-attention`.
+Engine choice comes from the pt-BR benchmark ([benchmarks/tts/README.md](benchmarks/tts/README.md)):
+in blind listening Gemini 3.8 Flash-Lite TTS scored 4.95/5 and the best local model 3.25–3.40.
 
-Manual setup:
+- Requires explicit `--language en` or `--language pt-br` (used for the "omitted" cues; Gemini detects the
+  spoken language itself).
+- `--engine gemini` (default): `google/gemini-3.8-flash-lite-tts`, voice `Kore`, `OPENROUTER_API_KEY` from the
+  repo `.env`. Chunks go out as parallel requests (`--workers`, default 4) with retries on 429/5xx. Roughly
+  US$ 0.60 per hour of audio; `--dry-run` prints the character count. Other voices: `Leda`, `Aoede`, `Puck`,
+  `Charon`… (30 in all, listed in the model's `supported_voices` on OpenRouter). No `--instruct`.
+- `--engine qwen`: local GPU, defaults to `models/Qwen3-TTS-12Hz-0.6B-CustomVoice`, speaker `ryan`.
+  If `qwen-tts` warns that SoX is missing, install the system binary with `sudo apt install sox`.
+- Output defaults to `<input>.wav`. Reports elapsed time, audio duration and realtime factor.
+- **Flags:** `-o/--output`, `--language`, `--engine`, `--model`, `--speaker`, `--instruct` (qwen),
+  `--device` (qwen), `--chunk-chars`, `--batch-size` (qwen), `--workers` (gemini), `--dry-run`, `--keep-temp`,
+  `--flash-attention` (qwen).
+
+Setup for `--engine qwen`:
 ```bash
 pip install -U qwen-tts soundfile torch
 huggingface-cli download Qwen/Qwen3-TTS-Tokenizer-12Hz --local-dir models/Qwen3-TTS-Tokenizer-12Hz
@@ -286,8 +295,10 @@ huggingface-cli download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir models
 ```
 
 ```bash
-python tools/md2audio.py article.md --language en --dry-run
-python tools/md2audio.py article.md --language pt-br -o article.wav --batch-size 2
+python tools/md2audio.py article.md --language pt-br --dry-run
+python tools/md2audio.py article.md --language pt-br -o article.wav
+python tools/md2audio.py article.md --language pt-br --speaker Leda
+python tools/md2audio.py article.md --language en --engine qwen --speaker Aiden --instruct "Calm lecture style."
 ```
 
 ### `youtube2audio.py`
