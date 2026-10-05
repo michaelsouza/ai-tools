@@ -137,5 +137,32 @@ class GeminiEngineTests(unittest.TestCase):
                 self.assertEqual(md2audio.main(), 2)
 
 
+class OutputLocationTests(unittest.TestCase):
+    def test_default_output_goes_to_repo_outputs_audio(self):
+        path = md2audio.default_output_path(Path("/anywhere/joao_1-5.md"))
+
+        self.assertEqual(path, md2audio.REPO_ROOT / "outputs" / "audio" / "joao_1-5.wav")
+
+    def test_source_markdown_is_copied_beside_the_audio(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "in" / "texto.md"
+            source.parent.mkdir()
+            source.write_text("Olá.", encoding="utf-8")
+            output = Path(tmp) / "out" / "texto.wav"
+            output.parent.mkdir()
+
+            copy = md2audio.keep_source_next_to_audio(source, output)
+
+            self.assertEqual(copy, Path(tmp) / "out" / "texto.md")
+            self.assertEqual(copy.read_text(encoding="utf-8"), "Olá.")
+
+    def test_source_already_beside_the_audio_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "texto.md"
+            source.write_text("Olá.", encoding="utf-8")
+
+            self.assertIsNone(md2audio.keep_source_next_to_audio(source, Path(tmp) / "texto.wav"))
+
+
 if __name__ == "__main__":
     unittest.main()

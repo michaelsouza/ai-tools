@@ -51,6 +51,8 @@ RECOMMENDED_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
 DEFAULT_MODEL = "models/Qwen3-TTS-12Hz-1.7B-CustomVoice"
 DEFAULT_SPEAKER = "ryan"
 DEFAULT_CHUNK_CHARS = 900
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs" / "audio"  # git-ignored; see AGENTS.md "Generated files"
 DEFAULT_BATCH_SIZE = 2
 LANGUAGE_NAMES = {
     "en": "English",
@@ -265,7 +267,16 @@ def chunk_blocks(blocks: Sequence[str], max_chars: int) -> List[str]:
 
 
 def default_output_path(input_path: Path) -> Path:
-    return input_path.with_suffix(".wav")
+    return DEFAULT_OUTPUT_DIR / f"{input_path.stem}.wav"
+
+
+def keep_source_next_to_audio(input_path: Path, output_path: Path) -> Optional[Path]:
+    """Copy the narrated Markdown beside the audio (same base name) unless it is already there."""
+    source_copy = output_path.with_suffix(input_path.suffix)
+    if source_copy.resolve() == input_path.resolve():
+        return None
+    shutil.copy2(input_path, source_copy)
+    return source_copy
 
 
 def resolve_device(device: str) -> str:
@@ -534,7 +545,12 @@ Setup:
         """,
     )
     parser.add_argument("input", type=Path, help="Markdown document to narrate")
-    parser.add_argument("-o", "--output", type=Path, help="Output WAV file (default: input name with .wav)")
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="Output WAV file (default: outputs/audio/<input name>.wav, with a copy of the Markdown beside it)",
+    )
     parser.add_argument("--language", required=True, choices=sorted(LANGUAGE_NAMES), help="Narration language")
     parser.add_argument(
         "--engine",
@@ -586,7 +602,7 @@ Setup:
 
 def main() -> int:
     console = Console()
-    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+    load_dotenv(REPO_ROOT / ".env")
     parser = build_parser()
     args = parser.parse_args()
     gemini = args.engine == "gemini"
@@ -668,10 +684,12 @@ def main() -> int:
         console.print(f"[bold red]Error:[/] {exc}")
         return 1
 
+    source_copy = None if args.output else keep_source_next_to_audio(input_path, output_path)
     console.print(
         Panel(
             f"Output saved to: [cyan]{output_path}[/]\n"
-            f"Elapsed: [cyan]{metrics.elapsed_seconds:.1f}s[/] | "
+            + (f"Source copied to: [cyan]{source_copy}[/]\n" if source_copy else "")
+            + f"Elapsed: [cyan]{metrics.elapsed_seconds:.1f}s[/] | "
             f"Audio: [cyan]{metrics.audio_seconds:.1f}s[/] | "
             f"Realtime factor: [cyan]{metrics.realtime_factor:.2f}x[/]\n"
             f"Chunks: [cyan]{metrics.chunks}[/] | "

@@ -283,7 +283,8 @@ in blind listening Gemini 3.8 Flash-Lite TTS scored 4.95/5 and the best local mo
   `Charon`… (30 in all, listed in the model's `supported_voices` on OpenRouter). No `--instruct`.
 - `--engine qwen`: local GPU, defaults to `models/Qwen3-TTS-12Hz-1.7B-CustomVoice`, speaker `ryan`.
   If `qwen-tts` warns that SoX is missing, install the system binary with `sudo apt install sox`.
-- Output defaults to `<input>.wav`. Reports elapsed time, audio duration and realtime factor.
+- Output defaults to `outputs/audio/<input name>.wav` (git-ignored), with a copy of the Markdown beside it;
+  `-o` writes elsewhere and skips the copy. Reports elapsed time, audio duration and realtime factor.
 - **Flags:** `-o/--output`, `--language`, `--engine`, `--model`, `--speaker`, `--instruct` (qwen),
   `--device` (qwen), `--chunk-chars`, `--batch-size` (qwen), `--workers` (gemini), `--dry-run`, `--keep-temp`,
   `--flash-attention` (qwen).
