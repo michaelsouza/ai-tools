@@ -5,7 +5,7 @@ import wave
 from pathlib import Path
 from unittest import mock
 
-from tools import md2audio
+from tools import md2audio, voice_ref
 from tools.md2audio import chunk_blocks, markdown_to_blocks
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -162,6 +162,66 @@ class OutputLocationTests(unittest.TestCase):
             source.write_text("Olá.", encoding="utf-8")
 
             self.assertIsNone(md2audio.keep_source_next_to_audio(source, Path(tmp) / "texto.wav"))
+
+
+class VoiceCloneTests(unittest.TestCase):
+    def run_main(self, *extra):
+        with tempfile.TemporaryDirectory() as tmp:
+            doc = Path(tmp) / "a.md"
+            doc.write_text("Olá.", encoding="utf-8")
+            with mock.patch("sys.argv", ["md2audio.py", str(doc), "--language", "pt-br", *extra]):
+                return md2audio.main()
+
+    def test_missing_voice_points_to_voice_ref(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(md2audio, "VOICES_DIR", Path(tmp)):
+            with self.assertRaisesRegex(md2audio.MarkdownNarrationError, "voice_ref.py ninguem"):
+                md2audio.load_voice("ninguem")
+
+    def test_voice_loads_reference_audio_and_transcript(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(md2audio, "VOICES_DIR", Path(tmp)):
+            (Path(tmp) / "eu.wav").write_bytes(b"RIFF")
+            (Path(tmp) / "eu.txt").write_text("Bom dia!\n", encoding="utf-8")
+
+            self.assertEqual(md2audio.load_voice("eu"), (Path(tmp) / "eu.wav", "Bom dia!"))
+
+    def test_voice_selects_local_clone_model(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(md2audio, "VOICES_DIR", Path(tmp)):
+            (Path(tmp) / "eu.wav").write_bytes(b"RIFF")
+            (Path(tmp) / "eu.txt").write_text("Bom dia!", encoding="utf-8")
+            with mock.patch.object(md2audio, "synthesize_chunks", side_effect=RuntimeError("stop")) as synth:
+                self.assertEqual(self.run_main("--voice", "eu"), 1)
+
+        kwargs = synth.call_args.kwargs
+        self.assertEqual(kwargs["engine"], "qwen")
+        self.assertEqual(kwargs["model_name_or_path"], md2audio.CLONE_MODEL)
+        self.assertEqual(kwargs["voice"], (Path(tmp) / "eu.wav", "Bom dia!"))
+
+    def test_voice_rejects_gemini_speaker_and_instruct(self):
+        for extra in (["--engine", "gemini"], ["--speaker", "ryan"], ["--instruct", "calmo"]):
+            with self.subTest(extra=extra):
+                self.assertEqual(self.run_main("--voice", "eu", *extra), 2)
+
+
+class VoiceReferenceTests(unittest.TestCase):
+    def test_reading_texts_come_from_the_doc(self):
+        texts = voice_ref.load_texts()
+
+        self.assertEqual(sorted(texts), ["A", "B", "C"])
+        self.assertTrue(texts["A"].startswith("Bom dia!"))
+
+    def test_word_error_rate_ignores_case_and_punctuation(self):
+        self.assertEqual(voice_ref.word_error_rate("Bom dia! Tudo bem?", "bom dia, tudo bem"), 0.0)
+        self.assertAlmostEqual(voice_ref.word_error_rate("um dois três quatro", "um dois quatro"), 0.25)
+        self.assertEqual(voice_ref.word_error_rate("diminui em até quarenta por cento", "diminui em até 40%"), 0.0)
+
+    def test_problem_explains_unusable_takes(self):
+        take = voice_ref.Take(Path("a.m4a"), Path("a.wav"), 15.0, 40.0, "", "A", 0.0)
+        self.assertEqual(voice_ref.problem(take), "")
+        self.assertEqual(voice_ref.problem(voice_ref.Take(Path("a"), Path("a"), 3.0, 40.0, "", "A", 0.0)), "too short")
+        self.assertEqual(
+            voice_ref.problem(voice_ref.Take(Path("a"), Path("a"), 15.0, 40.0, "", "A", 0.2)),
+            "reading differs from text",
+        )
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ OPENROUTER_API_KEY=your_openrouter_api_key
 
 **Bibliography:** [`merge_bib.py`](#merge_bibpy) · [`scopus_rank.py`](#scopus_rankpy)
 
-**Audio & video:** [`audio_transcribe.py`](#audio_transcribepy) · [`audio_transcribe_gui.py`](#audio_transcribe_guipy) · [`md2audio.py`](#md2audiopy) · [`youtube2audio.py`](#youtube2audiopy) · [`demucs_separate.py`](#demucs_separatepy) · [`mix_audio.py`](#mix_audiopy)
+**Audio & video:** [`audio_transcribe.py`](#audio_transcribepy) · [`audio_transcribe_gui.py`](#audio_transcribe_guipy) · [`md2audio.py`](#md2audiopy) · [`voice_ref.py`](#voice_refpy) · [`youtube2audio.py`](#youtube2audiopy) · [`demucs_separate.py`](#demucs_separatepy) · [`mix_audio.py`](#mix_audiopy)
 
 ---
 
@@ -283,9 +283,12 @@ in blind listening Gemini 3.8 Flash-Lite TTS scored 4.95/5 and the best local mo
   `Charon`… (30 in all, listed in the model's `supported_voices` on OpenRouter). No `--instruct`.
 - `--engine qwen`: local GPU, defaults to `models/Qwen3-TTS-12Hz-1.7B-CustomVoice`, speaker `ryan`.
   If `qwen-tts` warns that SoX is missing, install the system binary with `sudo apt install sox`.
+- `--voice <name>`: narrates in a recorded voice (yours) by cloning `models/voices/<name>.wav` with
+  `models/Qwen3-TTS-12Hz-1.7B-Base`; implies `--engine qwen` and excludes `--speaker`/`--instruct`.
+  Record and prepare the reference with [`voice_ref.py`](#voice_refpy).
 - Output defaults to `outputs/audio/<input name>.wav` (git-ignored), with a copy of the Markdown beside it;
   `-o` writes elsewhere and skips the copy. Reports elapsed time, audio duration and realtime factor.
-- **Flags:** `-o/--output`, `--language`, `--engine`, `--model`, `--speaker`, `--instruct` (qwen),
+- **Flags:** `-o/--output`, `--language`, `--engine`, `--voice` (qwen), `--model`, `--speaker`, `--instruct` (qwen),
   `--device` (qwen), `--chunk-chars`, `--batch-size` (qwen), `--workers` (gemini), `--dry-run`, `--keep-temp`,
   `--flash-attention` (qwen).
 
@@ -294,6 +297,7 @@ Setup for `--engine qwen`:
 pip install -U qwen-tts soundfile torch
 huggingface-cli download Qwen/Qwen3-TTS-Tokenizer-12Hz --local-dir models/Qwen3-TTS-Tokenizer-12Hz
 huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
+huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir models/Qwen3-TTS-12Hz-1.7B-Base   # --voice only
 ```
 
 ```bash
@@ -301,6 +305,25 @@ python tools/md2audio.py article.md --language pt-br --dry-run
 python tools/md2audio.py article.md --language pt-br -o article.wav
 python tools/md2audio.py article.md --language pt-br --speaker Leda
 python tools/md2audio.py article.md --language en --engine qwen --speaker Aiden --instruct "Calm lecture style."
+python tools/md2audio.py article.md --language pt-br --voice michael
+```
+
+### `voice_ref.py`
+
+Recordings of your voice → the reference that `md2audio.py --voice` clones.
+
+What to read and how to record (three ~15 s texts, two takes each): **[docs/voice_reference.md](docs/voice_reference.md)**.
+
+- Converts each take to 24 kHz mono WAV, trims edge silence, peak-normalizes, estimates background noise
+  (SNR) and transcribes it with Whisper large-v3 to find which text was read and how closely (WER).
+- Keeps the cleanest take that matches its text (WER ≤ 5%, 6–25 s) as `models/voices/<name>.wav` plus the
+  exact text in `<name>.txt`; `models/` is git-ignored. Warns about noise, length or a mismatched reading
+  (then it saves Whisper's transcript, to be checked by hand).
+- Needs the `ffmpeg` and `sox` binaries and a GPU for Whisper. **Flags:** `--take`, `--whisper`.
+
+```bash
+python tools/voice_ref.py michael /mnt/c/Users/Michael/Downloads/voz_*.m4a
+python tools/voice_ref.py michael /mnt/c/Users/Michael/Downloads/voz_*.m4a --take voz_b2.m4a
 ```
 
 ### `youtube2audio.py`

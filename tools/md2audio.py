@@ -49,10 +49,14 @@ GEMINI_RETRIES = 4
 DEFAULT_WORKERS = 4
 RECOMMENDED_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
 DEFAULT_MODEL = "models/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+CLONE_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"  # --voice: zero-shot clone of a recorded reference
+CLONE_MODEL = "models/Qwen3-TTS-12Hz-1.7B-Base"
+LOCAL_MODEL_IDS = {DEFAULT_MODEL: RECOMMENDED_MODEL_ID, CLONE_MODEL: CLONE_MODEL_ID}
 DEFAULT_SPEAKER = "ryan"
 DEFAULT_CHUNK_CHARS = 900
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs" / "audio"  # git-ignored; see AGENTS.md "Generated files"
+VOICES_DIR = REPO_ROOT / "models" / "voices"  # <name>.wav + <name>.txt, made by tools/voice_ref.py
 DEFAULT_BATCH_SIZE = 2
 LANGUAGE_NAMES = {
     "en": "English",
@@ -312,15 +316,28 @@ def load_qwen_model(model_name_or_path: str, device: str, use_flash_attention: b
 
 def resolve_model_name_or_path(model_name_or_path: str) -> str:
     model_path = Path(model_name_or_path).expanduser()
-    if model_name_or_path == DEFAULT_MODEL and not model_path.exists():
-        raise RuntimeError(
-            "Default Qwen3-TTS model is not downloaded. Run:\n"
-            f"  huggingface-cli download {RECOMMENDED_MODEL_ID} --local-dir {DEFAULT_MODEL}\n"
-            "Or pass --model with an existing local path or explicit Hugging Face model id."
-        )
+    if model_name_or_path in LOCAL_MODEL_IDS:
+        model_path = REPO_ROOT / model_name_or_path  # default models live in the repo, whatever the working directory
+        if not model_path.exists():
+            raise RuntimeError(
+                "Qwen3-TTS model is not downloaded. Run:\n"
+                f"  huggingface-cli download {LOCAL_MODEL_IDS[model_name_or_path]} --local-dir {model_path}\n"
+                "Or pass --model with an existing local path or explicit Hugging Face model id."
+            )
     if model_path.exists():
         return str(model_path.resolve())
     return model_name_or_path
+
+
+def load_voice(name: str) -> Tuple[Path, str]:
+    """The recorded reference for --voice: models/voices/<name>.wav and its exact transcript <name>.txt."""
+    wav, txt = VOICES_DIR / f"{name}.wav", VOICES_DIR / f"{name}.txt"
+    if not wav.exists() or not txt.exists():
+        raise MarkdownNarrationError(
+            f"Voice '{name}' not found in {VOICES_DIR}. Record it and run: "
+            f"python tools/voice_ref.py {name} <recordings...> (see docs/voice_reference.md)"
+        )
+    return wav, txt.read_text(encoding="utf-8").strip()
 
 
 def write_pcm_wav(path: Path, pcm: bytes, sample_rate: int) -> None:
@@ -388,8 +405,11 @@ def synthesize_qwen(
     batch_size: int,
     use_flash_attention: bool,
     advance,
+    voice: Optional[Tuple[Path, str]] = None,
 ) -> Tuple[List[Path], float, int]:
-    """Synthesize chunks with local Qwen3-TTS CustomVoice; returns (chunk paths, load seconds, batches)."""
+    """Synthesize chunks with local Qwen3-TTS: a CustomVoice speaker, or a clone of `voice` (reference wav, its text).
+
+    Returns (chunk paths, load seconds, batches)."""
     try:
         import soundfile as sf
     except ImportError as exc:
@@ -401,21 +421,29 @@ def synthesize_qwen(
     load_started_at = time.perf_counter()
     resolved_model = resolve_model_name_or_path(model_name_or_path)
     model = load_qwen_model(resolved_model, resolved_device, use_flash_attention)
+    if voice:
+        # Encode the reference once; a one-item prompt is reused for every chunk of a batch.
+        prompt = model.create_voice_clone_prompt(ref_audio=str(voice[0]), ref_text=voice[1])
     load_seconds = time.perf_counter() - load_started_at
-    supported_speakers = getattr(model, "get_supported_speakers", lambda: [])()
-    if supported_speakers and speaker not in supported_speakers:
-        raise RuntimeError(f"Unsupported speaker '{speaker}'. Supported speakers: {', '.join(supported_speakers)}")
+
+    def generate(batch: List[str]):
+        languages = [LANGUAGE_NAMES[language]] * len(batch)
+        if voice:
+            return model.generate_voice_clone(text=batch, language=languages, voice_clone_prompt=prompt)
+        return model.generate_custom_voice(
+            text=batch, language=languages, speaker=[speaker] * len(batch), instruct=[instruct or ""] * len(batch)
+        )
+
+    if not voice:
+        supported_speakers = getattr(model, "get_supported_speakers", lambda: [])()
+        if supported_speakers and speaker not in supported_speakers:
+            raise RuntimeError(f"Unsupported speaker '{speaker}'. Supported speakers: {', '.join(supported_speakers)}")
 
     chunk_paths: List[Path] = []
     batches = 0
     for batch_start in range(0, len(chunks), batch_size):
         batch = chunks[batch_start : batch_start + batch_size]
-        wavs, sample_rate = model.generate_custom_voice(
-            text=list(batch),
-            language=[LANGUAGE_NAMES[language]] * len(batch),
-            speaker=[speaker] * len(batch),
-            instruct=[instruct or ""] * len(batch),
-        )
+        wavs, sample_rate = generate(list(batch))
         batches += 1
         for offset, wav in enumerate(wavs):
             index = batch_start + offset + 1
@@ -440,6 +468,7 @@ def synthesize_chunks(
     keep_temp: bool,
     use_flash_attention: bool,
     console: Console,
+    voice: Optional[Tuple[Path, str]] = None,
 ) -> SynthesisMetrics:
     started_at = time.perf_counter()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -474,6 +503,7 @@ def synthesize_chunks(
                     batch_size,
                     use_flash_attention,
                     advance,
+                    voice,
                 )
         synthesis_seconds = time.perf_counter() - started_at - load_seconds
 
@@ -535,6 +565,7 @@ Examples:
   %(prog)s article.md --language pt-br -o article.wav --speaker Leda
   %(prog)s article.md --language en --dry-run
   %(prog)s article.md --language en --engine qwen --speaker Aiden --instruct "Calm lecture style."
+  %(prog)s article.md --language pt-br --voice michael
 
 Setup:
   gemini (default): OPENROUTER_API_KEY in the repo .env
@@ -542,6 +573,8 @@ Setup:
   pip install -U qwen-tts soundfile torch
   huggingface-cli download Qwen/Qwen3-TTS-Tokenizer-12Hz --local-dir models/Qwen3-TTS-Tokenizer-12Hz
   huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
+  --voice (your own voice): docs/voice_reference.md, then
+  huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir models/Qwen3-TTS-12Hz-1.7B-Base
         """,
     )
     parser.add_argument("input", type=Path, help="Markdown document to narrate")
@@ -555,8 +588,12 @@ Setup:
     parser.add_argument(
         "--engine",
         choices=ENGINES,
-        default=DEFAULT_ENGINE,
-        help=f"TTS engine: gemini (OpenRouter, paid) or qwen (local GPU) (default: {DEFAULT_ENGINE})",
+        help=f"TTS engine: gemini (OpenRouter, paid) or qwen (local GPU) (default: {DEFAULT_ENGINE}; qwen with --voice)",
+    )
+    parser.add_argument(
+        "--voice",
+        help="Clone a recorded voice from models/voices/<name>.wav/.txt with local Qwen3-TTS Base "
+        "(see docs/voice_reference.md)",
     )
     parser.add_argument(
         "--model",
@@ -605,8 +642,9 @@ def main() -> int:
     load_dotenv(REPO_ROOT / ".env")
     parser = build_parser()
     args = parser.parse_args()
+    args.engine = args.engine or ("qwen" if args.voice else DEFAULT_ENGINE)
     gemini = args.engine == "gemini"
-    model = args.model or (GEMINI_MODEL if gemini else DEFAULT_MODEL)
+    model = args.model or (GEMINI_MODEL if gemini else CLONE_MODEL if args.voice else DEFAULT_MODEL)
     speaker = args.speaker or (GEMINI_SPEAKER if gemini else DEFAULT_SPEAKER)
 
     if args.chunk_chars < 200:
@@ -623,6 +661,19 @@ def main() -> int:
             "[bold red]Error:[/] --instruct only works with --engine qwen (OpenRouter TTS has no style field)"
         )
         return 2
+    if args.voice and (gemini or args.speaker or args.instruct):
+        console.print(
+            "[bold red]Error:[/] --voice clones your recording with the local engine; "
+            "it cannot be combined with --engine gemini, --speaker or --instruct"
+        )
+        return 2
+    voice = None
+    if args.voice:
+        try:
+            voice = load_voice(args.voice)
+        except MarkdownNarrationError as exc:
+            console.print(f"[bold red]Error:[/] {exc}")
+            return 1
 
     input_path = args.input.expanduser().resolve()
     output_path = (args.output or default_output_path(input_path)).expanduser().resolve()
@@ -650,7 +701,7 @@ def main() -> int:
         characters = sum(len(chunk) for chunk in chunks)
         console.print(
             Panel(
-                f"Engine: [cyan]{args.engine}[/] ({model}, voice {speaker}) | "
+                f"Engine: [cyan]{args.engine}[/] ({model}, voice {args.voice + ' (clone)' if voice else speaker}) | "
                 f"Chunks: [cyan]{len(chunks)}[/] | Characters: [cyan]{characters:,}[/]",
                 title="Narration Preview",
                 border_style="blue",
@@ -676,6 +727,7 @@ def main() -> int:
             keep_temp=args.keep_temp,
             use_flash_attention=args.flash_attention,
             console=console,
+            voice=voice,
         )
     except KeyboardInterrupt:
         console.print("\n[yellow]Cancelled by user.[/]")

@@ -64,3 +64,7 @@ Pillow
 
 # PDF annotations (used by pdf_review.py)
 pymupdf>=1.24
+
+# Voice reference check (used by voice_ref.py)
+num2words==0.5.14
+rapidfuzz==3.14.5
