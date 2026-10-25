@@ -24,7 +24,7 @@
     background: var(--bg); color: var(--ink);
     font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
   }
-  #viewer { overflow-y: auto; padding: 24px; }
+  #viewer { position: relative; overflow-y: auto; padding: 24px; }  /* pages' offsetTop counts from here */
   .page {
     position: relative; margin: 0 auto 24px; background: #fff;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
@@ -373,12 +373,27 @@ function reveal(c) {
 
 // ---------- Changes made outside the page ----------
 
+// The page at the top of the view and how far into it, so a rebuilt PDF reopens near the same text.
+function readingPosition() {
+  const top = viewer.scrollTop;
+  const slot = pages.find((s) => s.div.offsetTop + s.div.offsetHeight > top) ?? pages.at(-1);
+  return slot ? { page: slot.n, into: (top - slot.div.offsetTop) / slot.div.offsetHeight } : null;
+}
+
+function restore(position) {
+  if (!position || !pages.length) return;
+  const slot = pages[Math.min(position.page, pages.length) - 1];
+  viewer.scrollTop = slot.div.offsetTop + position.into * slot.div.offsetHeight;
+}
+
 async function watch() {
   try {
     const data = await fetch("/api/version").then((r) => r.json());
     if (version !== null && data.version !== version && !draft) {
       version = data.version;
+      const position = readingPosition();
       await loadDocument();
+      restore(position);
       await loadComments();
       say("The PDF changed on disk and was reloaded");
     }
