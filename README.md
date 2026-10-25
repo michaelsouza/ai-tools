@@ -19,7 +19,7 @@ OPENROUTER_API_KEY=your_openrouter_api_key
 
 ## Tools
 
-**Documents & web:** [`pdf2md.py`](#pdf2mdpy) · [`png2md.py`](#png2mdpy) · [`url2md.py`](#url2mdpy) · [`slides2pdf.py`](#slides2pdfpy) · [`html2png.py`](#html2pngpy)
+**Documents & web:** [`pdf2md.py`](#pdf2mdpy) · [`png2md.py`](#png2mdpy) · [`url2md.py`](#url2mdpy) · [`slides2pdf.py`](#slides2pdfpy) · [`html2png.py`](#html2pngpy) · [`pdf_review.py`](#pdf_reviewpy)
 
 **Code & tokens:** [`flowchart.py`](#flowchartpy) · [`count_tokens.py`](#count_tokenspy)
 
@@ -104,6 +104,27 @@ HTML → PNG with automatic whitespace cropping.
 
 ```bash
 python tools/html2png.py diagram.html output.png -s 3
+```
+
+### `pdf_review.py`
+
+Comment on a PDF in the browser: select a passage and the comment box opens.
+
+- Left panel: the PDF (pdf.js). Right panel: the comment box and the list of comments, sorted by page and
+  position. Click a comment to jump to it; edit or delete it from the list.
+- **Enter** saves, **Shift+Enter** breaks the line, **Esc** cancels.
+- Comments are saved into the PDF itself as highlight annotations with a note, so Okular, Acrobat and any
+  script that reads PDF annotations see them.
+- The PDF is written in place. When another program rewrites it (a LaTeX or Quarto build), the page reloads
+  and the comments in the old file are gone. `--copy` comments on a copy instead (default
+  `./<name>-comments.pdf`); a later run reuses that copy, so a review can span several sessions and builds.
+- Needs internet access to load pdf.js from jsDelivr.
+- **Flags:** `--copy [PATH]`, `--port` (default 8765), `--author` (default: login name), `--no-browser`.
+
+```bash
+python tools/pdf_review.py paper.pdf
+uv run --with pymupdf python tools/pdf_review.py paper.pdf --author "Ana"
+python tools/pdf_review.py _output/paper.pdf --copy   # comments go to ./paper-comments.pdf
 ```
 
 ### `flowchart.py`

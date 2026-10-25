@@ -60,3 +60,6 @@ mistralai>=1.0.0,<2.0.0
 # Image OCR (used by png2md.py)
 easyocr==1.7.2
 Pillow
+
+# PDF annotations (used by pdf_review.py)
+pymupdf>=1.24
