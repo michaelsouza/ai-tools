@@ -118,13 +118,21 @@ Comment on a PDF in the browser: select a passage and the comment box opens.
 - The PDF is written in place. When another program rewrites it (a LaTeX or Quarto build), the page reloads
   and the comments in the old file are gone. `--copy` comments on a copy instead (default
   `./<name>-comments.pdf`); a later run reuses that copy, so a review can span several sessions and builds.
+- **Earlier comments** stay below the current ones, in another colour and grouped by round. A journal next to the
+  PDF (`<pdf>.comments.json`, or `--journal PATH`) records every comment the page has shown, so comments erased by
+  a rebuild move there. `--history` adds the comments of older annotated PDFs. Each earlier comment is looked up in
+  the current PDF by its marked words: *unchanged* (highlighted, click to jump), *passage changed* (rewritten or
+  removed), or *appears N times*. An unchanged passage hints that the comment is still open, but a comment can also
+  be answered elsewhere in the text.
 - Needs internet access to load pdf.js from jsDelivr.
-- **Flags:** `--copy [PATH]`, `--port` (default 8765), `--author` (default: login name), `--no-browser`.
+- **Flags:** `--copy [PATH]`, `--history PDF...`, `--journal PATH`, `--port` (default 8765), `--author` (default: login
+  name), `--no-browser`.
 
 ```bash
 python tools/pdf_review.py paper.pdf
 uv run --with pymupdf python tools/pdf_review.py paper.pdf --author "Ana"
 python tools/pdf_review.py _output/paper.pdf --copy   # comments go to ./paper-comments.pdf
+python tools/pdf_review.py _output/paper.pdf --history paper-commented-*.pdf
 ```
 
 ### `flowchart.py`

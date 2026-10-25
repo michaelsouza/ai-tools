@@ -13,17 +13,27 @@ Quarto build) erases the comments.  ``--copy`` avoids that by commenting on a
 copy, which a later run reuses:
 
     uv run --with pymupdf python tools/pdf_review.py _output/paper.pdf --copy
+
+Past comments stay visible below the current ones.  A journal next to the PDF
+records every comment the page has shown, and ``--history`` adds the comments
+of older annotated PDFs.  Each past comment is looked up in the current PDF by
+its marked words: found once, it is highlighted in another colour; not found,
+the passage was rewritten.
 """
 
 from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import json
 import os
+import re
 import shutil
 import threading
+import uuid
 import webbrowser
+from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -31,11 +41,86 @@ from pathlib import Path
 import pymupdf
 
 PAGE_HTML = Path(__file__).with_name("pdf_review.html")
+UID_PREFIX = "pdf-review:"  # kept in the annotation's subject, so a comment keeps its identity when edited
+NOTE_MARGIN = (-20, -5, 20, 5)  # words this close to a note's icon are what the note refers to
 
 
-def _words_inside(words: list[tuple], rect: pymupdf.Rect) -> list[str]:
+# ---------- Words and annotations ----------
+
+
+def _words_inside(words: list[tuple], rect: pymupdf.Rect) -> list[tuple]:
     """Words whose centre lies inside ``rect``, in reading order."""
-    return [word[4] for word in words if rect.contains(pymupdf.Point((word[0] + word[2]) / 2, (word[1] + word[3]) / 2))]
+    return [word for word in words if rect.contains(pymupdf.Point((word[0] + word[2]) / 2, (word[1] + word[3]) / 2))]
+
+
+def _same_line(word: tuple, other: tuple) -> bool:
+    return word[5:7] == other[5:7]  # block and line numbers
+
+
+def _joined(words: list[tuple]) -> str:
+    """Join the words, undoing the hyphenation at the end of a PDF line."""
+    text = ""
+    for word, following in zip(words, words[1:] + [None]):
+        text += word[4]
+        if following is None:
+            break
+        if word[4].endswith("-") and not _same_line(word, following):
+            text = text[:-1]
+        else:
+            text += " "
+    return text
+
+
+def _tokens(text: str) -> list[str]:
+    """Lower-case words, without punctuation, for comparing passages across builds."""
+    return re.findall(r"\w+", text.lower())
+
+
+def _to_fractions(page: pymupdf.Page, rect: pymupdf.Rect) -> list[float]:
+    """Unrotated page coordinates to fractions of the page as displayed."""
+    shown = rect * page.rotation_matrix
+    width, height = page.rect.width, page.rect.height
+    return [shown.x0 / width, shown.y0 / height, shown.x1 / width, shown.y1 / height]
+
+
+def _to_page(page: pymupdf.Page, fractions: list[float]) -> pymupdf.Rect:
+    """Fractions of the page as displayed to unrotated page coordinates."""
+    width, height = page.rect.width, page.rect.height
+    x0, y0, x1, y1 = fractions
+    return pymupdf.Rect(x0 * width, y0 * height, x1 * width, y1 * height) * page.derotation_matrix
+
+
+def describe(page: pymupdf.Page, annot: pymupdf.Annot, words: list[tuple]) -> dict:
+    """An annotation as the page shows it: where it is, the words it marks and its note."""
+    vertices = annot.vertices or []
+    quads = [pymupdf.Quad(vertices[i : i + 4]).rect for i in range(0, len(vertices), 4)]
+    if quads:
+        rects, marked = quads, _joined([word for quad in quads for word in _words_inside(words, quad)])
+    else:
+        rects, marked = [annot.rect], _joined(_words_inside(words, annot.rect + NOTE_MARGIN))
+    info = annot.info
+    text = info.get("content", "")
+    subject = info.get("subject", "")
+    if subject.startswith(UID_PREFIX):
+        uid = subject
+    else:  # made by another program: its content is the best identity there is
+        uid = "h:" + hashlib.sha1(f"{page.number}|{marked}|{text}".encode()).hexdigest()[:16]
+    return {
+        "uid": uid,
+        "page": page.number + 1,
+        "xref": annot.xref,
+        "rects": [_to_fractions(page, rect) for rect in rects],
+        "marked": marked,
+        "text": text,
+        "author": info.get("title", ""),
+    }
+
+
+def _reading_order(comment: dict) -> tuple:
+    return comment["page"], comment["rects"][0][1], comment["rects"][0][0]
+
+
+# ---------- The PDF under review ----------
 
 
 class CommentStore:
@@ -60,19 +145,19 @@ class CommentStore:
             for page in document:
                 words = page.get_text("words")
                 for annot in page.annots(types=[pymupdf.PDF_ANNOT_HIGHLIGHT]):
-                    found.append(self._describe(page, annot, words))
-        return sorted(found, key=lambda c: (c["page"], c["rects"][0][1], c["rects"][0][0]))
+                    found.append(describe(page, annot, words))
+        return sorted(found, key=_reading_order)
 
     def add(self, page_number: int, rects: list[list[float]], text: str) -> dict:
         if not rects:
             raise ValueError("a comment needs at least one marked rectangle")
         with self._lock, pymupdf.open(self.pdf) as document:
             page = document[page_number - 1]
-            displayed = [self._to_page(page, rect) for rect in rects]
+            displayed = [_to_page(page, rect) for rect in rects]
             annot = page.add_highlight_annot(quads=[rect.quad for rect in displayed])
-            annot.set_info(content=text, title=self.author)
+            annot.set_info(content=text, title=self.author, subject=UID_PREFIX + uuid.uuid4().hex)
             annot.update()
-            comment = self._describe(page, annot, page.get_text("words"))
+            comment = describe(page, annot, page.get_text("words"))
             self._save(document)
         return comment
 
@@ -84,11 +169,15 @@ class CommentStore:
             annot.update()
             self._save(document)
 
-    def remove(self, page_number: int, xref: int) -> None:
+    def remove(self, page_number: int, xref: int) -> str:
+        """Delete the comment and return its uid."""
         with self._lock, pymupdf.open(self.pdf) as document:
             page = document[page_number - 1]
-            page.delete_annot(self._find(page, xref))
+            annot = self._find(page, xref)
+            uid = describe(page, annot, page.get_text("words"))["uid"]
+            page.delete_annot(annot)
             self._save(document)
+        return uid
 
     @staticmethod
     def _find(page: pymupdf.Page, xref: int) -> pymupdf.Annot:
@@ -96,33 +185,6 @@ class CommentStore:
         if xref not in {found[0] for found in page.annot_xrefs()}:
             raise KeyError(f"no annotation {xref} on page {page.number + 1}")
         return page.load_annot(xref)
-
-    @staticmethod
-    def _to_page(page: pymupdf.Page, fractions: list[float]) -> pymupdf.Rect:
-        """Fractions of the displayed page to unrotated page coordinates."""
-        width, height = page.rect.width, page.rect.height
-        x0, y0, x1, y1 = fractions
-        shown = pymupdf.Rect(x0 * width, y0 * height, x1 * width, y1 * height)
-        return shown * page.derotation_matrix
-
-    @staticmethod
-    def _to_fractions(page: pymupdf.Page, rect: pymupdf.Rect) -> list[float]:
-        shown = rect * page.rotation_matrix
-        width, height = page.rect.width, page.rect.height
-        return [shown.x0 / width, shown.y0 / height, shown.x1 / width, shown.y1 / height]
-
-    def _describe(self, page: pymupdf.Page, annot: pymupdf.Annot, words: list[tuple]) -> dict:
-        vertices = annot.vertices or []
-        quads = [pymupdf.Quad(vertices[i : i + 4]).rect for i in range(0, len(vertices), 4)]
-        rects = quads or [annot.rect]
-        return {
-            "page": page.number + 1,
-            "xref": annot.xref,
-            "rects": [self._to_fractions(page, rect) for rect in rects],
-            "marked": " ".join(word for rect in rects for word in _words_inside(words, rect)),
-            "text": annot.info.get("content", ""),
-            "author": annot.info.get("title", ""),
-        }
 
     def _save(self, document: pymupdf.Document) -> None:
         """Append the change to the file, or rewrite it when appending fails."""
@@ -132,6 +194,168 @@ class CommentStore:
         partial = self.pdf.with_name(self.pdf.name + ".partial")
         document.save(partial, garbage=1)
         os.replace(partial, self.pdf)
+
+
+# ---------- Past comments ----------
+
+
+class CommentJournal:
+    """Every comment the review has shown, kept after a rebuild erases it from the PDF.
+
+    Entries are keyed by uid and remember the last version of the PDF that
+    held them, which groups the past comments into review rounds.
+    """
+
+    FIELDS = ("page", "marked", "text", "author")
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._lock = threading.Lock()
+
+    def entries(self) -> dict[str, dict]:
+        try:
+            return json.loads(self.path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+
+    def record(self, comments: list[dict], version: int) -> None:
+        with self._lock:
+            entries = self.entries()
+            changed = False
+            for comment in comments:
+                entry = {field: comment[field] for field in self.FIELDS}
+                old = entries.get(comment["uid"], {})
+                if {field: old.get(field) for field in self.FIELDS} != entry or old.get("version") != version:
+                    entries[comment["uid"]] = entry | {
+                        "version": version,
+                        "seen": datetime.now().isoformat("T", "minutes"),
+                    }
+                    changed = True
+            if changed:
+                self._write(entries)
+
+    def forget(self, uid: str) -> None:
+        """A deleted comment was not meant to be kept."""
+        with self._lock:
+            entries = self.entries()
+            if entries.pop(uid, None) is not None:
+                self._write(entries)
+
+    def _write(self, entries: dict) -> None:
+        partial = self.path.with_name(self.path.name + ".partial")
+        partial.write_text(json.dumps(entries, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(partial, self.path)
+
+
+def archived_comments(pdf: Path) -> list[dict]:
+    """The annotations of an older PDF that say something, read without changing it."""
+    with pymupdf.open(pdf) as document:
+        found = []
+        for page in document:
+            words = page.get_text("words")
+            for annot in page.annots():
+                comment = describe(page, annot, words)
+                if comment["text"] or comment["marked"]:
+                    found.append(comment)
+    return sorted(found, key=_reading_order)
+
+
+class PassageIndex:
+    """The words of a PDF as one stream of tokens, to find an old passage in a new build.
+
+    Each token remembers its page and the rectangles of its word, as
+    fractions, with the line they belong to.  A word hyphenated across two
+    lines becomes one token with both rectangles.
+    """
+
+    def __init__(self, document: pymupdf.Document) -> None:
+        self.tokens: list[str] = []
+        self.places: list[tuple[int, list[tuple[tuple, list[float]]]]] = []
+        for page in document:
+            words = page.get_text("words")
+            i = 0
+            while i < len(words):
+                text, parts = words[i][4], [words[i]]
+                while text.endswith("-") and i + 1 < len(words) and not _same_line(words[i], words[i + 1]):
+                    i += 1
+                    text, parts = text[:-1] + words[i][4], parts + [words[i]]
+                place = (page.number + 1, [(w[5:7], _to_fractions(page, pymupdf.Rect(w[:4]))) for w in parts])
+                for token in _tokens(text):
+                    self.tokens.append(token)
+                    self.places.append(place)
+                i += 1
+
+    def find(self, marked: str) -> dict:
+        """``found`` with its page and line rectangles, ``repeated``, ``changed`` or ``no-text``."""
+        wanted = _tokens(marked)
+        if not wanted:
+            return {"status": "no-text"}
+        size = len(wanted)
+        starts = [
+            i
+            for i, token in enumerate(self.tokens[: len(self.tokens) - size + 1])
+            if token == wanted[0] and self.tokens[i : i + size] == wanted
+        ]
+        if not starts:
+            return {"status": "changed"}
+        if len(starts) > 1:
+            return {"status": "repeated", "count": len(starts)}
+        page = self.places[starts[0]][0]
+        lines: dict[tuple, list[float]] = {}
+        for place_page, parts in self.places[starts[0] : starts[0] + size]:
+            if place_page != page:  # a passage running into the next page is marked on its first page
+                continue
+            for line, (x0, y0, x1, y1) in parts:
+                box = lines.setdefault(line, [x0, y0, x1, y1])
+                box[:] = [min(box[0], x0), min(box[1], y0), max(box[2], x1), max(box[3], y1)]
+        return {"status": "found", "page": page, "rects": list(lines.values())}
+
+
+def _passage_key(comment: dict) -> tuple[str, str]:
+    return " ".join(_tokens(comment["marked"])), comment["text"].strip()
+
+
+class ReviewHistory:
+    """Past comments in rounds, newest first, each looked up in the current PDF."""
+
+    def __init__(self, journal: CommentJournal, archives: list[Path]) -> None:
+        self.journal = journal
+        self.archives = archives
+
+    def rounds(self, current: list[dict], pdf: Path) -> list[dict]:
+        uids = {comment["uid"] for comment in current}
+        seen = {_passage_key(comment) for comment in current}
+        rounds = []
+        past = [(uid, entry) for uid, entry in self.journal.entries().items() if uid not in uids]
+        for version in sorted({entry["version"] for _, entry in past}, reverse=True):
+            items = [dict(entry, uid=uid) for uid, entry in past if entry["version"] == version]
+            rounds.append({"label": f"until {items[0]['seen'].replace('T', ' ')}", "items": items})
+        for archive in sorted(self.archives, key=lambda path: path.name, reverse=True):
+            rounds.append({"label": archive.name, "items": archived_comments(archive)})
+
+        with pymupdf.open(pdf) as document:
+            index = PassageIndex(document)
+        shown = []
+        for number, round_ in enumerate(rounds):
+            items = []
+            for item in sorted(round_["items"], key=lambda c: (c["page"], c.get("rects", [[0, 0]])[0][1])):
+                key = _passage_key(item)
+                if key in seen:  # a comment appears once, in its latest round
+                    continue
+                seen.add(key)
+                items.append(
+                    {
+                        "key": f"h{number}-{len(items)}",
+                        "page_then": item["page"],
+                        "marked": item["marked"],
+                        "text": item["text"],
+                        "author": item["author"],
+                    }
+                    | index.find(item["marked"])
+                )
+            if items:
+                shown.append({"label": round_["label"], "items": items})
+        return shown
 
 
 def review_copy(source: Path, target: Path) -> bool:
@@ -148,7 +372,10 @@ def review_copy(source: Path, target: Path) -> bool:
     return True
 
 
-def make_handler(store: CommentStore, page_html: bytes) -> type[BaseHTTPRequestHandler]:
+# ---------- HTTP ----------
+
+
+def make_handler(store: CommentStore, history: ReviewHistory, page_html: bytes) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             if self.path == "/":
@@ -156,7 +383,17 @@ def make_handler(store: CommentStore, page_html: bytes) -> type[BaseHTTPRequestH
             elif self.path.startswith("/pdf"):
                 self._send(HTTPStatus.OK, store.pdf.read_bytes(), "application/pdf")
             elif self.path == "/api/comments":
-                self._json({"name": store.pdf.name, "version": store.version(), "comments": store.comments()})
+                version = store.version()
+                current = store.comments()
+                history.journal.record(current, version)
+                self._json(
+                    {
+                        "name": store.pdf.name,
+                        "version": version,
+                        "comments": current,
+                        "history": history.rounds(current, store.pdf),
+                    }
+                )
             elif self.path == "/api/version":
                 self._json({"version": store.version()})
             else:
@@ -173,7 +410,7 @@ def make_handler(store: CommentStore, page_html: bytes) -> type[BaseHTTPRequestH
 
         def do_DELETE(self) -> None:
             page, xref = self._target()
-            self._apply(lambda body: store.remove(page, xref))
+            self._apply(lambda body: history.journal.forget(store.remove(page, xref)))
 
         def _target(self) -> tuple[int, int]:
             """``/api/comments/<page>/<xref>`` as numbers."""
@@ -218,12 +455,19 @@ def main() -> None:
         metavar="PATH",
         help="comment on a copy, reused if it exists (default: ./<name>-comments.pdf)",
     )
+    parser.add_argument(
+        "--history", type=Path, nargs="+", default=[], metavar="PDF", help="older annotated PDFs whose comments to show"
+    )
+    parser.add_argument("--journal", type=Path, help="file recording past comments (default: <pdf>.comments.json)")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--author", default=getpass.getuser(), help="name stored with each comment")
     parser.add_argument("--no-browser", action="store_true", help="do not open the page")
     args = parser.parse_args()
     if not args.pdf.is_file():
         parser.error(f"PDF not found: {args.pdf}")
+    missing = [str(path) for path in args.history if not path.is_file()]
+    if missing:
+        parser.error(f"history PDF not found: {', '.join(missing)}")
 
     pdf = args.pdf
     if args.copy:
@@ -235,9 +479,13 @@ def main() -> None:
         print(f"{'Copied' if made else 'Reusing the existing copy'}: {pdf}")
 
     store = CommentStore(pdf.resolve(), args.author)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(store, PAGE_HTML.read_bytes()))
+    journal = CommentJournal(args.journal or pdf.with_name(pdf.name + ".comments.json"))
+    archives = [path.resolve() for path in args.history if path.resolve() != store.pdf]
+    handler = make_handler(store, ReviewHistory(journal, archives), PAGE_HTML.read_bytes())
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
     url = f"http://localhost:{args.port}/"
     print(f"Reviewing {pdf} at {url} (Ctrl+C to stop)")
+    print(f"Past comments are recorded in {journal.path}")
     if not args.no_browser:
         webbrowser.open(url)
     try:

@@ -9,12 +9,12 @@
   :root {
     --bg: #f4f4f2; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #deddd8;
     --accent: #2f6fdd; --mark: rgba(255, 213, 0, 0.42); --pending: rgba(47, 111, 221, 0.28);
-    --danger: #c0392b;
+    --danger: #c0392b; --old: rgba(140, 90, 220, 0.26); --old-ink: #7a4fc4; --done: #2e8b57;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #1b1b1a; --panel: #242423; --ink: #ecebe6; --muted: #a09f99; --line: #3a3a38;
-      --accent: #6d9cf0; --danger: #e5736a;
+      --accent: #6d9cf0; --danger: #e5736a; --old-ink: #b294ef; --done: #6fcf97;
     }
   }
   * { box-sizing: border-box; }
@@ -33,6 +33,7 @@
   .marks { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
   .mark { position: absolute; background: var(--mark); mix-blend-mode: multiply; border-radius: 2px; }
   .mark.pending { background: var(--pending); }
+  .mark.old { background: var(--old); }
   .mark.flash { outline: 2px solid var(--accent); }
   .textLayer { z-index: 2; }
 
@@ -59,10 +60,22 @@
   textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   .hint { margin-top: 6px; color: var(--muted); font-size: 12px; }
 
-  #list { list-style: none; margin: 0; padding: 6px 0; overflow-y: auto; flex: 1; }
-  #list li { padding: 10px 18px; border-bottom: 1px solid var(--line); cursor: pointer; }
-  #list li:hover { background: var(--bg); }
-  #list li.active { background: var(--bg); box-shadow: inset 3px 0 0 var(--accent); }
+  #lists { overflow-y: auto; flex: 1; }
+  #lists ol { list-style: none; margin: 0; padding: 6px 0; }
+  #lists li { padding: 10px 18px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  #lists li:hover { background: var(--bg); }
+  #lists li.active { background: var(--bg); box-shadow: inset 3px 0 0 var(--accent); }
+  #history h2 {
+    margin: 0; padding: 16px 18px 6px; border-top: 1px solid var(--line);
+    color: var(--old-ink); font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  #history summary { padding: 6px 18px; color: var(--old-ink); font-size: 12px; cursor: pointer; }
+  #history li { box-shadow: inset 3px 0 0 var(--old); }
+  #history li.still { cursor: default; }
+  #history li.still:hover { background: none; }
+  .state { font-style: normal; font-size: 11px; color: var(--old-ink); }
+  .state.changed { color: var(--done); }
+  .state.repeated, .state.no-text { color: var(--muted); }
   .meta { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
   .meta span { flex: 1; }
   .quote { margin: 3px 0; color: var(--muted); font-style: italic;
@@ -87,7 +100,10 @@
     <textarea id="note" placeholder="Comment"></textarea>
     <div class="hint">Enter saves · Shift+Enter breaks the line · Esc cancels</div>
   </section>
-  <ol id="list"></ol>
+  <div id="lists">
+    <ol id="list"></ol>
+    <section id="history"></section>
+  </div>
 </aside>
 
 <script type="module">
@@ -104,6 +120,7 @@ const status = document.getElementById("status");
 
 let pages = [];          // {n, page, base, div, marks, scale}
 let comments = [];
+let history = [];        // past rounds: {label, items: [{key, status, page, rects, marked, text, ...}]}
 let version = null;
 let draft = null;        // {page, rects, quote} for a new comment, or a comment being edited
 let visible = new Set();
@@ -226,6 +243,9 @@ function drawMarks() {
     }
   };
   for (const c of comments) add(c.page, c.rects, "mark", key(c));
+  for (const round of history) {
+    for (const item of round.items) if (item.status === "found") add(item.page, item.rects, "mark old", item.key);
+  }
   if (draft && !draft.xref) add(draft.page, draft.rects, "mark pending", "draft");
 }
 
@@ -321,8 +341,10 @@ async function loadComments() {
   document.getElementById("name").textContent = data.name;
   document.title = `Review · ${data.name}`;
   comments = data.comments;
+  history = data.history || [];
   drawMarks();
   showList();
+  showHistory();
 }
 
 function showList() {
@@ -342,7 +364,7 @@ function showList() {
     item.querySelector(".meta span").textContent = `p. ${c.page}${c.author ? ` · ${c.author}` : ""}`;
     item.querySelector(".quote").textContent = c.marked;
     item.querySelector(".text").textContent = c.text;
-    item.addEventListener("click", () => reveal(c));
+    item.addEventListener("click", () => reveal(c.page, c.rects, key(c)));
     item.querySelector(".edit").addEventListener("click", (event) => {
       event.stopPropagation();
       openDraft({ ...c, quote: c.marked });
@@ -362,13 +384,57 @@ function showList() {
   }
 }
 
-function reveal(c) {
-  const slot = pages[c.page - 1];
+function reveal(pageNumber, rects, markKey) {
+  const slot = pages[pageNumber - 1];
   if (!slot) return;
-  const top = slot.div.offsetTop + c.rects[0][1] * slot.div.offsetHeight - viewer.clientHeight / 3;
-  viewer.scrollTo({ top, behavior: "smooth" });
-  list.querySelectorAll("li").forEach((li) => li.classList.toggle("active", li.dataset.key === key(c)));
-  document.querySelectorAll(".mark").forEach((m) => m.classList.toggle("flash", m.dataset.key === key(c)));
+  const top = slot.div.offsetTop + rects[0][1] * slot.div.offsetHeight - viewer.clientHeight / 3;
+  viewer.scrollTop = top;
+  document.querySelectorAll("#lists li").forEach((li) => li.classList.toggle("active", li.dataset.key === markKey));
+  document.querySelectorAll(".mark").forEach((m) => m.classList.toggle("flash", m.dataset.key === markKey));
+}
+
+// ---------- Earlier comments ----------
+
+// What finding the old passage in the current PDF says about it.
+const STATES = {
+  found: (item) => `unchanged · p. ${item.page}`,
+  changed: () => "passage changed",
+  repeated: (item) => `passage appears ${item.count} times`,
+  "no-text": () => "no marked text",
+};
+
+function showHistory() {
+  const box = document.getElementById("history");
+  box.replaceChildren();
+  if (!history.length) return;
+  const title = document.createElement("h2");
+  title.textContent = "Earlier comments";
+  box.append(title);
+  for (const round of history) {
+    const details = document.createElement("details");
+    details.open = true;
+    const summary = document.createElement("summary");
+    summary.textContent = `${round.label} · ${round.items.length}`;
+    const items = document.createElement("ol");
+    for (const old of round.items) {
+      const item = document.createElement("li");
+      item.dataset.key = old.key;
+      item.innerHTML = `
+        <div class="meta"><span></span><em class="state"></em></div>
+        <div class="quote"></div><div class="text"></div>`;
+      item.querySelector(".meta span").textContent = `then p. ${old.page_then}${old.author ? ` · ${old.author}` : ""}`;
+      const state = item.querySelector(".state");
+      state.classList.add(old.status);
+      state.textContent = STATES[old.status](old);
+      item.querySelector(".quote").textContent = old.marked;
+      item.querySelector(".text").textContent = old.text;
+      if (old.status === "found") item.addEventListener("click", () => reveal(old.page, old.rects, old.key));
+      else item.classList.add("still");
+      items.append(item);
+    }
+    details.append(summary, items);
+    box.append(details);
+  }
 }
 
 // ---------- Changes made outside the page ----------
