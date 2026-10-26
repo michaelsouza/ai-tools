@@ -33,6 +33,7 @@ import shutil
 import threading
 import uuid
 import webbrowser
+from contextlib import contextmanager
 from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -43,6 +44,7 @@ import pymupdf
 PAGE_HTML = Path(__file__).with_name("pdf_review.html")
 UID_PREFIX = "pdf-review:"  # kept in the annotation's subject, so a comment keeps its identity when edited
 NOTE_MARGIN = (-20, -5, 20, 5)  # words this close to a note's icon are what the note refers to
+WORD_GAP = 0.02  # fragments of one line lie closer than this (page widths); a column gutter is wider
 
 
 # ---------- Words and annotations ----------
@@ -120,7 +122,30 @@ def _reading_order(comment: dict) -> tuple:
     return comment["page"], comment["rects"][0][1], comment["rects"][0][0]
 
 
+def merge_lines(rects: list[list[float]]) -> list[list[float]]:
+    """One rectangle per line of a column: the browser returns one per text fragment.
+
+    Fragments merge when they share most of their height and almost touch, so
+    the same line of two columns stays two rectangles.
+    """
+    lines: list[list[float]] = []
+    for rect in sorted(rects, key=lambda r: (r[1], r[0])):
+        for line in lines:
+            overlap = min(line[3], rect[3]) - max(line[1], rect[1])
+            gap = max(line[0], rect[0]) - min(line[2], rect[2])
+            if overlap > 0.5 * min(line[3] - line[1], rect[3] - rect[1]) and gap < WORD_GAP:
+                line[:] = [min(line[0], rect[0]), min(line[1], rect[1]), max(line[2], rect[2]), max(line[3], rect[3])]
+                break
+        else:
+            lines.append(list(rect))
+    return lines
+
+
 # ---------- The PDF under review ----------
+
+
+class StaleVersion(Exception):
+    """The PDF changed since the page read it, so its pages and annotation xrefs may be different."""
 
 
 class CommentStore:
@@ -128,7 +153,9 @@ class CommentStore:
 
     The file is reopened every time because a build may replace it while the
     review is open.  Rectangles cross the API as fractions of the page as
-    displayed, which is what the browser measures.
+    displayed, which is what the browser measures.  A change can name the
+    version it was made against (``expected``); it is refused when the file
+    has changed since.
     """
 
     def __init__(self, pdf: Path, author: str) -> None:
@@ -148,12 +175,21 @@ class CommentStore:
                     found.append(describe(page, annot, words))
         return sorted(found, key=_reading_order)
 
-    def add(self, page_number: int, rects: list[list[float]], text: str) -> dict:
+    @contextmanager
+    def _changing(self, expected: int | None):
+        """The open document, for a change made against version ``expected``."""
+        with self._lock:
+            if expected is not None and expected != self.version():
+                raise StaleVersion("the PDF changed on disk since the page loaded it")
+            with pymupdf.open(self.pdf) as document:
+                yield document
+
+    def add(self, page_number: int, rects: list[list[float]], text: str, expected: int | None = None) -> dict:
         if not rects:
             raise ValueError("a comment needs at least one marked rectangle")
-        with self._lock, pymupdf.open(self.pdf) as document:
+        with self._changing(expected) as document:
             page = document[page_number - 1]
-            displayed = [_to_page(page, rect) for rect in rects]
+            displayed = [_to_page(page, rect) for rect in merge_lines(rects)]
             annot = page.add_highlight_annot(quads=[rect.quad for rect in displayed])
             annot.set_info(content=text, title=self.author, subject=UID_PREFIX + uuid.uuid4().hex)
             annot.update()
@@ -161,17 +197,17 @@ class CommentStore:
             self._save(document)
         return comment
 
-    def edit(self, page_number: int, xref: int, text: str) -> None:
-        with self._lock, pymupdf.open(self.pdf) as document:
+    def edit(self, page_number: int, xref: int, text: str, expected: int | None = None) -> None:
+        with self._changing(expected) as document:
             page = document[page_number - 1]
             annot = self._find(page, xref)
             annot.set_info(content=text)
             annot.update()
             self._save(document)
 
-    def remove(self, page_number: int, xref: int) -> str:
+    def remove(self, page_number: int, xref: int, expected: int | None = None) -> str:
         """Delete the comment and return its uid."""
-        with self._lock, pymupdf.open(self.pdf) as document:
+        with self._changing(expected) as document:
             page = document[page_number - 1]
             annot = self._find(page, xref)
             uid = describe(page, annot, page.get_text("words"))["uid"]
@@ -375,9 +411,23 @@ def review_copy(source: Path, target: Path) -> bool:
 # ---------- HTTP ----------
 
 
+COMMENT_PATH = re.compile(r"/api/comments/(\d+)/(\d+)/?")
+
+
 def make_handler(store: CommentStore, history: ReviewHistory, page_html: bytes) -> type[BaseHTTPRequestHandler]:
+    """Requests are answered only for the page itself.
+
+    Another site open in the browser may send requests here.  A Host other
+    than this server's (DNS rebinding) is refused, and changes must be JSON,
+    which a browser sends cross-origin only after a CORS check this server
+    never passes.  Versions travel as strings: a nanosecond mtime does not
+    fit in a JavaScript number.
+    """
+
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
+            if not self._own_host():
+                return
             if self.path == "/":
                 self._send(HTTPStatus.OK, page_html, "text/html; charset=utf-8")
             elif self.path.startswith("/pdf"):
@@ -389,44 +439,65 @@ def make_handler(store: CommentStore, history: ReviewHistory, page_html: bytes) 
                 self._json(
                     {
                         "name": store.pdf.name,
-                        "version": version,
+                        "version": str(version),
                         "comments": current,
                         "history": history.rounds(current, store.pdf),
                     }
                 )
             elif self.path == "/api/version":
-                self._json({"version": store.version()})
+                self._json({"version": str(store.version())})
             else:
-                self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
+                self._error(HTTPStatus.NOT_FOUND, "not found")
 
         def do_POST(self) -> None:
             if self.path != "/api/comments":
-                return self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
-            self._apply(lambda body: store.add(int(body["page"]), body["rects"], str(body["text"])))
+                return self._error(HTTPStatus.NOT_FOUND, "not found")
+            self._apply(
+                lambda body, expected: store.add(int(body["page"]), body["rects"], str(body["text"]), expected)
+            )
 
         def do_PUT(self) -> None:
-            page, xref = self._target()
-            self._apply(lambda body: store.edit(page, xref, str(body["text"])))
+            if target := self._target():
+                self._apply(lambda body, expected: store.edit(*target, str(body["text"]), expected))
 
         def do_DELETE(self) -> None:
-            page, xref = self._target()
-            self._apply(lambda body: history.journal.forget(store.remove(page, xref)))
+            if target := self._target():
+                self._apply(lambda body, expected: history.journal.forget(store.remove(*target, expected)))
 
-        def _target(self) -> tuple[int, int]:
-            """``/api/comments/<page>/<xref>`` as numbers."""
-            *_, page, xref = self.path.rstrip("/").split("/")
-            return int(page), int(xref)
+        def _own_host(self) -> bool:
+            port = self.server.server_address[1]
+            if self.headers.get("Host") in {f"localhost:{port}", f"127.0.0.1:{port}"}:
+                return True
+            self._error(HTTPStatus.FORBIDDEN, "unknown Host")
+            return False
+
+        def _target(self) -> tuple[int, int] | None:
+            """``/api/comments/<page>/<xref>`` as numbers, or None after answering 404."""
+            if match := COMMENT_PATH.fullmatch(self.path):
+                return int(match[1]), int(match[2])
+            self._error(HTTPStatus.NOT_FOUND, "not found")
+            return None
 
         def _apply(self, change) -> None:
-            length = int(self.headers.get("Content-Length") or 0)
-            body = json.loads(self.rfile.read(length) or b"{}")
+            """Run ``change(body, expected_version)`` and answer with the new version."""
+            if not self._own_host():
+                return
+            if self.headers.get_content_type() != "application/json":
+                return self._error(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "changes must be sent as application/json")
             try:
-                result = change(body)
-            except (KeyError, ValueError, IndexError) as problem:
-                return self._json({"error": str(problem)}, HTTPStatus.BAD_REQUEST)
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length) or b"{}")
+                result = change(body, int(body["version"]))
+            except StaleVersion as problem:
+                return self._error(HTTPStatus.CONFLICT, str(problem))
+            except (KeyError, ValueError, IndexError, TypeError) as problem:  # JSONDecodeError is a ValueError
+                return self._error(HTTPStatus.BAD_REQUEST, f"{type(problem).__name__}: {problem}")
             except Exception as problem:  # the page shows it instead of a dropped connection
-                return self._json({"error": f"{type(problem).__name__}: {problem}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
-            self._json({"version": store.version(), "comment": result})
+                return self._error(HTTPStatus.INTERNAL_SERVER_ERROR, f"{type(problem).__name__}: {problem}")
+            self._json({"version": str(store.version()), "comment": result})
+
+        def _error(self, status: HTTPStatus, message: str) -> None:
+            self._json({"error": message}, status)
 
         def _json(self, data: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
             self._send(status, json.dumps(data).encode(), "application/json")

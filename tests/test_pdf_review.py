@@ -1,5 +1,9 @@
+import http.client
+import json
 import tempfile
+import threading
 import unittest
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 try:
@@ -8,7 +12,16 @@ except ImportError:  # run with ``uv run --with pymupdf``
     pymupdf = None
 
 if pymupdf is not None:
-    from tools.pdf_review import CommentJournal, CommentStore, PassageIndex, ReviewHistory, review_copy
+    from tools.pdf_review import (
+        CommentJournal,
+        CommentStore,
+        PassageIndex,
+        ReviewHistory,
+        StaleVersion,
+        make_handler,
+        merge_lines,
+        review_copy,
+    )
 
 
 def fractions_of(page: "pymupdf.Page", word: str) -> list[float]:
@@ -90,6 +103,44 @@ class CommentStoreTests(unittest.TestCase):
         store = CommentStore(self.make_pdf(), "ana")
         with self.assertRaises(ValueError):
             store.add(1, [], "no place")
+
+    def test_change_against_an_older_version_is_refused(self):
+        path = self.make_pdf()
+        store = CommentStore(path, "ana")
+        seen = store.version()
+        added = store.add(1, self.rects_for(path, 1, "alpha"), "first", seen)
+        for change in (
+            lambda: store.add(2, self.rects_for(path, 2, "beta"), "late", seen),
+            lambda: store.edit(1, added["xref"], "late", seen),
+            lambda: store.remove(1, added["xref"], seen),
+        ):
+            with self.assertRaises(StaleVersion):
+                change()
+        self.assertEqual([c["text"] for c in store.comments()], ["first"])
+
+
+@unittest.skipIf(pymupdf is None, "requires pymupdf")
+class MergeLinesTests(unittest.TestCase):
+    def test_fragments_of_one_line_merge(self):
+        self.assertEqual(merge_lines([[0.30, 0.1, 0.40, 0.12], [0.1, 0.1, 0.301, 0.12]]), [[0.1, 0.1, 0.40, 0.12]])
+
+    def test_same_line_of_two_columns_stays_apart(self):
+        left, right = [0.1, 0.1, 0.45, 0.12], [0.52, 0.1, 0.9, 0.12]
+        self.assertEqual(merge_lines([right, left]), [left, right])
+
+    def test_selection_across_columns_marks_only_selected_words(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        path = Path(folder.name) / "two-columns.pdf"
+        document = pymupdf.open()
+        page = document.new_page()
+        page.insert_text((50, 100), "left column alpha")
+        page.insert_text((320, 100), "right column beta")
+        document.save(path)
+        with pymupdf.open(path) as document:
+            rects = [fractions_of(document[0], word) for word in ("alpha", "right")]
+        added = CommentStore(path, "ana").add(1, rects, "two columns")
+        self.assertEqual((len(added["rects"]), added["marked"]), (2, "alpha right"))
 
 
 def write_pdf(path: Path, lines: list[str]) -> Path:
@@ -189,6 +240,67 @@ class HistoryTests(unittest.TestCase):
         self.rebuild(["alpha beta gamma"])
         rounds = ReviewHistory(self.journal, [archive]).rounds(self.store.comments(), self.pdf)
         self.assertEqual(sum(len(round_["items"]) for round_ in rounds), 1)
+
+
+@unittest.skipIf(pymupdf is None, "requires pymupdf")
+class ServerTests(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.pdf = write_pdf(Path(folder.name) / "paper.pdf", ["alpha beta gamma"])
+        self.store = CommentStore(self.pdf, "ana")
+        history = ReviewHistory(CommentJournal(Path(folder.name) / "journal.json"), [])
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(self.store, history, b"<html></html>"))
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.port = server.server_address[1]
+
+    def request(self, method, path, body=None, kind="application/json", host=None):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        self.addCleanup(connection.close)
+        headers = {"Host": host or f"127.0.0.1:{self.port}", "Content-Type": kind}
+        connection.request(method, path, json.dumps(body) if body is not None else None, headers)
+        response = connection.getresponse()
+        return response.status, json.loads(response.read() or b"{}")
+
+    def new_comment(self, version: str) -> dict:
+        with pymupdf.open(self.pdf) as document:
+            rects = [fractions_of(document[0], "beta")]
+        return {"page": 1, "rects": rects, "text": "note", "version": version}
+
+    def current_version(self) -> str:
+        return self.request("GET", "/api/version")[1]["version"]
+
+    def test_version_is_a_string_and_a_change_with_it_is_saved(self):
+        version = self.current_version()
+        self.assertIsInstance(version, str)
+        status, data = self.request("POST", "/api/comments", self.new_comment(version))
+        self.assertEqual((status, data["comment"]["marked"]), (200, "beta"))
+
+    def test_other_host_is_refused(self):
+        status, _ = self.request("GET", "/pdf", host=f"rebind.example:{self.port}")
+        self.assertEqual(status, 403)
+
+    def test_change_that_is_not_json_is_refused(self):
+        status, _ = self.request("POST", "/api/comments", self.new_comment(self.current_version()), kind="text/plain")
+        self.assertEqual(status, 415)
+        self.assertEqual(self.store.comments(), [])
+
+    def test_change_on_an_older_version_is_a_conflict(self):
+        old = self.current_version()
+        self.request("POST", "/api/comments", self.new_comment(old))
+        status, _ = self.request("POST", "/api/comments", self.new_comment(old))
+        self.assertEqual((status, len(self.store.comments())), (409, 1))
+
+    def test_change_without_a_version_is_a_bad_request(self):
+        body = self.new_comment("")
+        del body["version"]
+        self.assertEqual(self.request("POST", "/api/comments", body)[0], 400)
+
+    def test_malformed_comment_path_is_not_found(self):
+        status, data = self.request("PUT", "/api/comments/x/y", {"text": "", "version": "1"})
+        self.assertEqual((status, data["error"]), (404, "not found"))
 
 
 @unittest.skipIf(pymupdf is None, "requires pymupdf")
