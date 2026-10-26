@@ -536,6 +536,17 @@ function restore(position) {
   viewer.scrollTop = slot.div.offsetTop + position.into * slot.div.offsetHeight;
 }
 
+// ← and → go to the start of the previous and next page, counted from the page at the top of the view.
+document.addEventListener("keydown", (event) => {
+  const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+  const typing = event.target.closest?.("textarea, input, [contenteditable]");
+  if (!step || typing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !pages.length) return;
+  event.preventDefault();
+  const current = readingPosition().page;
+  const slot = pages[Math.min(Math.max(current + step, 1), pages.length) - 1];
+  viewer.scrollTop = slot.div.offsetTop - 12;  // a little of the gap above, so the page's edge shows
+});
+
 async function reload() {
   const position = readingPosition();
   await loadDocument();

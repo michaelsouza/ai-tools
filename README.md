@@ -114,7 +114,8 @@ Comment on a PDF in the browser: select a passage and the comment box opens.
   position. Click a comment to jump to it; edit or delete it from the list. In a window taller than wide (a
   portrait monitor) the comments go below the PDF instead. Drag the bar between them to resize (remembered by the
   browser, separately for each layout); double-click it to reset.
-- **Enter** saves, **Shift+Enter** breaks the line, **Esc** cancels.
+- **Enter** saves, **Shift+Enter** breaks the line, **Esc** cancels. Outside the comment box, **←** and **→** go to
+  the previous and next page.
 - Comments are saved into the PDF itself as highlight annotations with a note, so Okular, Acrobat and any
   script that reads PDF annotations see them.
 - The PDF is written in place. When another program rewrites it (a LaTeX or Quarto build), the page reloads
