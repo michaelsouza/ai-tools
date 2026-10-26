@@ -112,7 +112,8 @@ Comment on a PDF in the browser: select a passage and the comment box opens.
 
 - Left panel: the PDF (pdf.js). Right panel: the comment box and the list of comments, sorted by page and
   position. Click a comment to jump to it; edit or delete it from the list. In a window taller than wide (a
-  portrait monitor) the comments go below the PDF instead.
+  portrait monitor) the comments go below the PDF instead. Drag the bar between them to resize (remembered by the
+  browser, separately for each layout); double-click it to reset.
 - **Enter** saves, **Shift+Enter** breaks the line, **Esc** cancels.
 - Comments are saved into the PDF itself as highlight annotations with a note, so Okular, Acrobat and any
   script that reads PDF annotations see them.

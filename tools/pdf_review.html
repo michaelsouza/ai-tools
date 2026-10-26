@@ -22,7 +22,7 @@
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
-    display: grid; grid-template-columns: minmax(0, 1fr) 380px;
+    display: grid; grid-template-columns: minmax(0, 1fr) 6px var(--side, 380px);  /* --side: set by the splitter */
     background: var(--bg); color: var(--ink);
     font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
   }
@@ -41,11 +41,23 @@
 
   aside {
     display: flex; flex-direction: column; min-height: 0;
-    background: var(--panel); border-left: 1px solid var(--line);
+    background: var(--panel);
   }
-  header { padding: 16px 18px 12px; border-bottom: 1px solid var(--line); }
-  h1 { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
-  #status { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; min-height: 1.2em; }
+  #splitter { background: var(--line); cursor: col-resize; touch-action: none; }
+  #splitter:hover, body.dragging #splitter { background: var(--accent); }
+  body.dragging { user-select: none; cursor: col-resize; }
+  body.dragging #viewer { pointer-events: none; }  /* no text selection, no comment box while dragging */
+
+  /* One line: the file name, then the status. */
+  header {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 8px 14px; border-bottom: 1px solid var(--line);
+  }
+  h1 {
+    flex: 0 1 auto; min-width: 0; margin: 0; font-size: 14px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #status { flex: 1 1 0; min-width: 0; text-align: right; color: var(--muted); font-size: 12px; }
   #status.error { color: var(--danger); }
 
   #composer { padding: 14px 18px; border-bottom: 1px solid var(--line); }
@@ -94,13 +106,14 @@
 
   /* A window taller than wide (a portrait monitor): the PDF above, the comments below. */
   @media (max-aspect-ratio: 1/1) {
-    body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 38vh; }
-    aside { border-left: 0; border-top: 1px solid var(--line); }
+    body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 6px var(--side, 38vh); }
+    #splitter, body.dragging { cursor: row-resize; }
   }
 </style>
 </head>
 <body>
 <main id="viewer"></main>
+<div id="splitter" role="separator" title="Drag to resize · double-click to reset"></div>
 <aside>
   <header><h1 id="name">Loading…</h1><span id="status"></span></header>
   <section id="composer" hidden>
@@ -226,14 +239,75 @@ async function render(slot) {
   slot.div.append(text);
 }
 
+// Pages fit the viewer's width: after it changes, resize them and stay at the same text.
+function relayout() {
+  const position = readingPosition();
+  pages.forEach(size);
+  restore(position);
+  visible.forEach(render);
+}
+
 let resizeTimer;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => {
-    pages.forEach(size);
-    visible.forEach(render);
-  }, 150);
+  resizeTimer = setTimeout(relayout, 150);
 });
+
+// ---------- Splitter ----------
+
+// The comment panel's width (side by side) or height (portrait), kept per layout in this browser.
+const portrait = matchMedia("(max-aspect-ratio: 1/1)");
+const splitter = document.getElementById("splitter");
+const sideKey = () => `pdf-review:side:${portrait.matches ? "rows" : "columns"}`;
+
+function setSide(px) {
+  if (px) document.body.style.setProperty("--side", `${px}px`);
+  else document.body.style.removeProperty("--side");  // the default of the layout
+}
+
+function applySavedSide() {
+  let saved = null;
+  try { saved = Number(localStorage.getItem(sideKey())) || null; } catch {}
+  setSide(saved);
+}
+
+function saveSide(px) {
+  try { px ? localStorage.setItem(sideKey(), String(px)) : localStorage.removeItem(sideKey()); } catch {}
+}
+
+function sideAt(event) {
+  const [total, at, thickness] = portrait.matches
+    ? [innerHeight, event.clientY, splitter.offsetHeight]
+    : [innerWidth, event.clientX, splitter.offsetWidth];
+  const side = total - at - thickness / 2;
+  return Math.round(Math.min(Math.max(side, 200), total * 0.7));
+}
+
+let dragged = null;
+splitter.addEventListener("pointerdown", (event) => {
+  splitter.setPointerCapture(event.pointerId);
+  document.body.classList.add("dragging");
+  dragged = sideAt(event);
+});
+splitter.addEventListener("pointermove", (event) => {
+  if (dragged === null) return;
+  dragged = sideAt(event);
+  setSide(dragged);
+});
+splitter.addEventListener("lostpointercapture", () => {  // after pointerup, and when the drag is cancelled
+  if (dragged === null) return;
+  document.body.classList.remove("dragging");
+  saveSide(dragged);
+  dragged = null;
+  relayout();
+});
+splitter.addEventListener("dblclick", () => {
+  saveSide(null);
+  setSide(null);
+  relayout();
+});
+portrait.addEventListener("change", applySavedSide);  // the window's resize event re-lays the pages
+applySavedSide();
 
 // ---------- Marks ----------
 
@@ -346,7 +420,7 @@ note.addEventListener("keydown", (event) => {
 
 async function loadComments() {
   const data = await api("GET", "/api/comments");
-  document.getElementById("name").textContent = data.name;
+  Object.assign(document.getElementById("name"), { textContent: data.name, title: data.name });  // cut when long
   document.title = `Review · ${data.name}`;
   comments = data.comments;
   history = data.history || [];
