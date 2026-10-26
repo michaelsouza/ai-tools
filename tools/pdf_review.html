@@ -89,6 +89,12 @@
   button:hover { color: var(--ink); background: var(--line); }
   button.delete:hover { color: var(--danger); }
   .empty { padding: 18px; color: var(--muted); }
+
+  /* A window taller than wide (a portrait monitor): the PDF above, the comments below. */
+  @media (max-aspect-ratio: 1/1) {
+    body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 38vh; }
+    aside { border-left: 0; border-top: 1px solid var(--line); }
+  }
 </style>
 </head>
 <body>
