@@ -29,15 +29,28 @@ A text-only view of the Rendered Prose chunks that would be spoken, used before 
 _Avoid_: dry output, debug text
 
 **Narration Language**:
-The spoken language used for Narration Audio. This tool supports English and Brazilian Portuguese only, and the user must choose one explicitly.
+The spoken language used for Narration Audio. This tool supports English and Brazilian Portuguese only; Brazilian Portuguese is the default.
 _Avoid_: arbitrary language, auto-detected language
 
 **Narration Voice**:
-The built-in speaker voice used to produce Narration Audio. A Narration Voice does not require the user to provide a reference recording, and the Markdown Narration Tool provides a default while allowing the user to choose another supported voice.
-_Avoid_: cloned voice, reference voice
+The voice that speaks the Narration Audio: either a Cloned Voice or a built-in Speaker Voice. The default is the user's own Cloned Voice.
+
+**Cloned Voice**:
+A Narration Voice imitated from the user's Reference Recording. It is the Markdown Narration Tool's default and needs no voice name on the command line.
+_Avoid_: custom voice, voice model
+
+**Reference Recording**:
+A short recording (10–20 s) of the user reading one of the fixed reading texts, stored with its exact transcript so a Cloned Voice can be made from it. It stays on the user's machine.
+_Avoid_: sample, voice file
+
+**Speaker Voice**:
+A built-in voice of the TTS engine (a Qwen preset speaker or a Gemini voice), chosen by name; it needs no Reference Recording.
+
+**Narration Tempo**:
+The speaking speed of the final Narration Audio, changed without changing pitch. A Cloned Voice defaults to 0.86 because the clone speaks faster than its Reference Recording; Speaker Voices default to normal speed.
 
 **Narration Instruction**:
-Optional user guidance for the speaking style of Narration Audio, such as tone, pace, or presentation style.
+Optional user guidance for the speaking style of Narration Audio, such as tone, pace, or presentation style. Only Qwen Speaker Voices accept it; giving one switches the default Cloned Voice to a Speaker Voice.
 _Avoid_: prompt, system prompt
 
 **Combined Narration**:
@@ -72,11 +85,11 @@ Domain expert: "Yes. Narration Preview shows the Rendered Prose chunks without c
 
 Dev: "Can the tool narrate any language?"
 
-Domain expert: "No. Narration Language is limited to English and Brazilian Portuguese, and the user must choose it explicitly."
+Domain expert: "No. Narration Language is limited to English and Brazilian Portuguese, and Brazilian Portuguese is the default."
 
 Dev: "Does the user need to provide a sample recording?"
 
-Domain expert: "No. The first version uses a Narration Voice, so the Markdown Document and selected language are enough."
+Domain expert: "Once. The default Narration Voice is the user's Cloned Voice, made from a Reference Recording; after that the Markdown Document is enough. A Speaker Voice needs no recording at all."
 
 Dev: "Can the user ask for a calmer or lecture-like delivery?"
 

@@ -1,28 +1,32 @@
 #!/usr/bin/env python3
 """
-Markdown to narration audio using Gemini TTS (OpenRouter, default) or local Qwen3-TTS CustomVoice.
+Markdown to narration audio: by default in the user's own cloned voice with local Qwen3-TTS, or with
+Qwen3-TTS preset speakers, or with Gemini TTS through OpenRouter.
 
 Usage:
-    python tools/md2audio.py article.md --language pt-br
-    python tools/md2audio.py article.md --language pt-br -o article.wav --speaker Leda
-    python tools/md2audio.py article.md --language en --dry-run
-    python tools/md2audio.py article.md --language en --engine qwen --speaker Aiden --instruct "Calm lecture style."
+    python tools/md2audio.py article.md                  # pt-br, voice "michael" (clone), tempo 0.86
+    python tools/md2audio.py article.md --tempo 1.0      # same voice at its natural speed
+    python tools/md2audio.py article.md --speaker ryan   # Qwen preset speaker, tempo 1.0
+    python tools/md2audio.py article.md --engine gemini  # Gemini voice Kore (paid), tempo 1.0
+    python tools/md2audio.py article.md --language en --speaker Aiden --instruct "Calm lecture style."
+    python tools/md2audio.py article.md --dry-run
 
 Setup:
-    gemini (default): OPENROUTER_API_KEY in the repo .env; pip install requests python-dotenv
-    qwen (local GPU):
+    qwen (default, local GPU):
         pip install -U qwen-tts soundfile torch
-        huggingface-cli download Qwen/Qwen3-TTS-Tokenizer-12Hz --local-dir models/Qwen3-TTS-Tokenizer-12Hz
+        huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir models/Qwen3-TTS-12Hz-1.7B-Base
         huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
+        your voice: record and prepare it as in docs/voice_reference.md (tools/voice_ref.py)
+    gemini: OPENROUTER_API_KEY in the repo .env; pip install requests python-dotenv
 
-Engine choice (pt-BR benchmark, blind listening 1-5): Gemini 3.8 Flash-Lite TTS 4.95, Qwen3-TTS 1.7B 3.25;
-see benchmarks/tts/README.md.
+Engine choice: docs/adr/0002 (pt-BR benchmark), 0003 (voice cloning), 0004 (current defaults).
 """
 
 import argparse
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -40,7 +44,10 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 ENGINES = ("gemini", "qwen")
-DEFAULT_ENGINE = "gemini"
+DEFAULT_ENGINE = "qwen"
+DEFAULT_LANGUAGE = "pt-br"
+DEFAULT_VOICE = "michael"  # the user's own recorded voice; dropped when --speaker, --instruct or gemini is chosen
+VOICE_TEMPO = 0.86  # the clone speaks ~17% faster than its reference recording; other voices default to 1.0
 GEMINI_MODEL = "google/gemini-3.8-flash-lite-tts"
 GEMINI_SPEAKER = "Kore"
 GEMINI_SAMPLE_RATE = 24000  # OpenRouter returns Gemini audio as raw PCM: 24 kHz, mono, 16-bit little-endian
@@ -335,7 +342,8 @@ def load_voice(name: str) -> Tuple[Path, str]:
     if not wav.exists() or not txt.exists():
         raise MarkdownNarrationError(
             f"Voice '{name}' not found in {VOICES_DIR}. Record it and run: "
-            f"python tools/voice_ref.py {name} <recordings...> (see docs/voice_reference.md)"
+            f"python tools/voice_ref.py {name} <recordings...> (see docs/voice_reference.md), "
+            "or pick another voice with --speaker ryan or --engine gemini"
         )
     return wav, txt.read_text(encoding="utf-8").strip()
 
@@ -469,6 +477,7 @@ def synthesize_chunks(
     use_flash_attention: bool,
     console: Console,
     voice: Optional[Tuple[Path, str]] = None,
+    tempo: float = 1.0,
 ) -> SynthesisMetrics:
     started_at = time.perf_counter()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -508,7 +517,12 @@ def synthesize_chunks(
         synthesis_seconds = time.perf_counter() - started_at - load_seconds
 
         concat_started_at = time.perf_counter()
-        concatenate_wavs(chunk_paths, output_path)
+        if tempo == 1.0:
+            concatenate_wavs(chunk_paths, output_path)
+        else:
+            full_speed = temp_dir / "full_speed.wav"
+            concatenate_wavs(chunk_paths, full_speed)
+            apply_tempo(full_speed, output_path, tempo)
         concat_seconds = time.perf_counter() - concat_started_at
         audio_seconds = wav_duration_seconds(output_path)
         elapsed_seconds = time.perf_counter() - started_at
@@ -530,6 +544,16 @@ def synthesize_chunks(
             console.print(f"[yellow]Temporary chunk files kept at:[/] {temp_dir}")
         else:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def apply_tempo(source: Path, output_path: Path, tempo: float) -> None:
+    """Change speaking speed without changing pitch (ffmpeg atempo; 0.86 = 14% slower)."""
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("--tempo needs the ffmpeg binary. Install it with: sudo apt install ffmpeg")
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(source), "-af", f"atempo={tempo}", str(output_path)],
+        check=True,
+    )
 
 
 def concatenate_wavs(chunk_paths: Sequence[Path], output_path: Path) -> None:
@@ -557,24 +581,26 @@ def wav_duration_seconds(path: Path) -> float:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Convert a Markdown document into narration audio using Gemini TTS (OpenRouter) or local Qwen3-TTS.",
+        description="Convert a Markdown document into narration audio with local Qwen3-TTS or Gemini TTS (OpenRouter).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Defaults: --language pt-br --engine qwen --voice michael --tempo 0.86.
+--speaker/--instruct switch to Qwen preset speakers and --engine gemini to Gemini; both use --tempo 1.0.
+
 Examples:
-  %(prog)s article.md --language pt-br
-  %(prog)s article.md --language pt-br -o article.wav --speaker Leda
-  %(prog)s article.md --language en --dry-run
-  %(prog)s article.md --language en --engine qwen --speaker Aiden --instruct "Calm lecture style."
-  %(prog)s article.md --language pt-br --voice michael
+  %(prog)s article.md
+  %(prog)s article.md --tempo 1.0
+  %(prog)s article.md --speaker ryan
+  %(prog)s article.md --engine gemini --speaker Leda
+  %(prog)s article.md --language en --speaker Aiden --instruct "Calm lecture style."
 
 Setup:
-  gemini (default): OPENROUTER_API_KEY in the repo .env
   qwen (local GPU):
   pip install -U qwen-tts soundfile torch
-  huggingface-cli download Qwen/Qwen3-TTS-Tokenizer-12Hz --local-dir models/Qwen3-TTS-Tokenizer-12Hz
-  huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
-  --voice (your own voice): docs/voice_reference.md, then
   huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir models/Qwen3-TTS-12Hz-1.7B-Base
+  huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
+  your voice: docs/voice_reference.md (tools/voice_ref.py)
+  gemini: OPENROUTER_API_KEY in the repo .env
         """,
     )
     parser.add_argument("input", type=Path, help="Markdown document to narrate")
@@ -584,16 +610,22 @@ Setup:
         type=Path,
         help="Output WAV file (default: outputs/audio/<input name>.wav, with a copy of the Markdown beside it)",
     )
-    parser.add_argument("--language", required=True, choices=sorted(LANGUAGE_NAMES), help="Narration language")
+    parser.add_argument(
+        "--language",
+        choices=sorted(LANGUAGE_NAMES),
+        default=DEFAULT_LANGUAGE,
+        help=f"Narration language (default: {DEFAULT_LANGUAGE})",
+    )
     parser.add_argument(
         "--engine",
         choices=ENGINES,
-        help=f"TTS engine: gemini (OpenRouter, paid) or qwen (local GPU) (default: {DEFAULT_ENGINE}; qwen with --voice)",
+        help=f"TTS engine: qwen (local GPU) or gemini (OpenRouter, paid) (default: {DEFAULT_ENGINE})",
     )
     parser.add_argument(
         "--voice",
         help="Clone a recorded voice from models/voices/<name>.wav/.txt with local Qwen3-TTS Base "
-        "(see docs/voice_reference.md)",
+        f"(default: {DEFAULT_VOICE}, unless --speaker, --instruct or --engine gemini is given; "
+        "see docs/voice_reference.md)",
     )
     parser.add_argument(
         "--model",
@@ -618,6 +650,12 @@ Setup:
         help=f"TTS chunks to synthesize per Qwen model call (default: {DEFAULT_BATCH_SIZE})",
     )
     parser.add_argument(
+        "--tempo",
+        type=float,
+        help=f"Speaking speed of the final audio, pitch unchanged (0.5-2.0; needs ffmpeg) "
+        f"(default: {VOICE_TEMPO} with a cloned voice, 1.0 otherwise)",
+    )
+    parser.add_argument(
         "--workers",
         type=int,
         default=DEFAULT_WORKERS,
@@ -637,15 +675,41 @@ Setup:
     return parser
 
 
+def resolve_defaults(args: argparse.Namespace) -> None:
+    """Fill engine, voice, model, speaker and tempo in place from what the user asked for.
+
+    Default: local Qwen cloning DEFAULT_VOICE at VOICE_TEMPO. Choosing a preset voice (--speaker, --instruct)
+    or Gemini drops the default clone and its tempo. Raises ValueError for contradictory choices."""
+    explicit_voice = args.voice is not None
+    if explicit_voice and (args.engine == "gemini" or args.speaker or args.instruct):
+        raise ValueError(
+            "--voice clones your recording with the local engine; "
+            "it cannot be combined with --engine gemini, --speaker or --instruct"
+        )
+    args.engine = args.engine or DEFAULT_ENGINE
+    gemini = args.engine == "gemini"
+    if not explicit_voice and not gemini and not args.speaker and not args.instruct:
+        args.voice = DEFAULT_VOICE
+    if gemini and args.instruct:
+        raise ValueError("--instruct only works with --engine qwen (OpenRouter TTS has no style field)")
+    args.model = args.model or (GEMINI_MODEL if gemini else CLONE_MODEL if args.voice else DEFAULT_MODEL)
+    args.speaker = args.speaker or (GEMINI_SPEAKER if gemini else DEFAULT_SPEAKER)
+    if args.tempo is None:
+        args.tempo = VOICE_TEMPO if args.voice else 1.0
+
+
 def main() -> int:
     console = Console()
     load_dotenv(REPO_ROOT / ".env")
     parser = build_parser()
     args = parser.parse_args()
-    args.engine = args.engine or ("qwen" if args.voice else DEFAULT_ENGINE)
+    try:
+        resolve_defaults(args)
+    except ValueError as exc:
+        console.print(f"[bold red]Error:[/] {exc}")
+        return 2
     gemini = args.engine == "gemini"
-    model = args.model or (GEMINI_MODEL if gemini else CLONE_MODEL if args.voice else DEFAULT_MODEL)
-    speaker = args.speaker or (GEMINI_SPEAKER if gemini else DEFAULT_SPEAKER)
+    model, speaker = args.model, args.speaker
 
     if args.chunk_chars < 200:
         console.print("[bold red]Error:[/] --chunk-chars must be at least 200")
@@ -656,16 +720,8 @@ def main() -> int:
     if args.workers < 1:
         console.print("[bold red]Error:[/] --workers must be at least 1")
         return 2
-    if gemini and args.instruct:
-        console.print(
-            "[bold red]Error:[/] --instruct only works with --engine qwen (OpenRouter TTS has no style field)"
-        )
-        return 2
-    if args.voice and (gemini or args.speaker or args.instruct):
-        console.print(
-            "[bold red]Error:[/] --voice clones your recording with the local engine; "
-            "it cannot be combined with --engine gemini, --speaker or --instruct"
-        )
+    if not 0.5 <= args.tempo <= 2.0:
+        console.print("[bold red]Error:[/] --tempo must be between 0.5 and 2.0")
         return 2
     voice = None
     if args.voice:
@@ -701,7 +757,8 @@ def main() -> int:
         characters = sum(len(chunk) for chunk in chunks)
         console.print(
             Panel(
-                f"Engine: [cyan]{args.engine}[/] ({model}, voice {args.voice + ' (clone)' if voice else speaker}) | "
+                f"Engine: [cyan]{args.engine}[/] ({model}, voice {args.voice + ' (clone)' if voice else speaker}, "
+                f"tempo {args.tempo}) | "
                 f"Chunks: [cyan]{len(chunks)}[/] | Characters: [cyan]{characters:,}[/]",
                 title="Narration Preview",
                 border_style="blue",
@@ -728,6 +785,7 @@ def main() -> int:
             use_flash_attention=args.flash_attention,
             console=console,
             voice=voice,
+            tempo=args.tempo,
         )
     except KeyboardInterrupt:
         console.print("\n[yellow]Cancelled by user.[/]")

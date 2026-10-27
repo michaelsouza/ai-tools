@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 import unittest
 import wave
@@ -132,7 +133,7 @@ class GeminiEngineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             doc = Path(tmp) / "a.md"
             doc.write_text("Olá.", encoding="utf-8")
-            argv = ["md2audio.py", str(doc), "--language", "pt-br", "--instruct", "calmo"]
+            argv = ["md2audio.py", str(doc), "--engine", "gemini", "--instruct", "calmo"]
             with mock.patch("sys.argv", argv):
                 self.assertEqual(md2audio.main(), 2)
 
@@ -222,6 +223,89 @@ class VoiceReferenceTests(unittest.TestCase):
             voice_ref.problem(voice_ref.Take(Path("a"), Path("a"), 15.0, 40.0, "", "A", 0.2)),
             "reading differs from text",
         )
+
+
+def write_silence(path, seconds, rate=24000):
+    md2audio.write_pcm_wav(path, b"\x00\x00" * int(seconds * rate), rate)
+
+
+class TempoTests(unittest.TestCase):
+    def test_tempo_outside_range_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            doc = Path(tmp) / "a.md"
+            doc.write_text("Olá.", encoding="utf-8")
+            for tempo in ("0.4", "2.5"):
+                with self.subTest(tempo=tempo), mock.patch(
+                    "sys.argv", ["md2audio.py", str(doc), "--language", "pt-br", "--tempo", tempo]
+                ):
+                    self.assertEqual(md2audio.main(), 2)
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "needs ffmpeg")
+    def test_tempo_stretches_the_final_audio(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            chunks = [Path(tmp) / "c1.wav", Path(tmp) / "c2.wav"]
+            for chunk in chunks:
+                write_silence(chunk, 1.0)
+            output = Path(tmp) / "out" / "narration.wav"
+            with mock.patch.object(md2audio, "synthesize_gemini", return_value=(chunks, 0.0, 2)):
+                metrics = md2audio.synthesize_chunks(
+                    ["a", "b"],
+                    output,
+                    "pt-br",
+                    "gemini",
+                    "m",
+                    "Kore",
+                    None,
+                    "auto",
+                    1,
+                    1,
+                    False,
+                    False,
+                    md2audio.Console(quiet=True),
+                    tempo=0.8,
+                )
+            self.assertAlmostEqual(metrics.audio_seconds, 2.0 / 0.8, delta=0.05)
+            self.assertEqual(sorted(p.name for p in output.parent.iterdir()), ["narration.wav"])
+
+    def test_missing_ffmpeg_is_explained(self):
+        with mock.patch("shutil.which", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "apt install ffmpeg"):
+                md2audio.apply_tempo(Path("a.wav"), Path("b.wav"), 0.9)
+
+
+class DefaultsTests(unittest.TestCase):
+    def resolved(self, *argv):
+        args = md2audio.build_parser().parse_args(["a.md", *argv])
+        md2audio.resolve_defaults(args)
+        return args
+
+    def test_no_options_clone_the_users_voice_slowed_down(self):
+        args = self.resolved()
+
+        self.assertEqual(
+            (args.language, args.engine, args.voice, args.model, args.tempo),
+            ("pt-br", "qwen", "michael", md2audio.CLONE_MODEL, 0.86),
+        )
+
+    def test_preset_speaker_drops_the_clone_and_its_tempo(self):
+        for argv in (["--speaker", "ryan"], ["--instruct", "Calm."]):
+            with self.subTest(argv=argv):
+                args = self.resolved(*argv)
+                self.assertEqual((args.voice, args.model, args.tempo), (None, md2audio.DEFAULT_MODEL, 1.0))
+
+    def test_gemini_drops_the_clone_and_its_tempo(self):
+        args = self.resolved("--engine", "gemini")
+
+        self.assertEqual((args.voice, args.model, args.speaker, args.tempo), (None, md2audio.GEMINI_MODEL, "Kore", 1.0))
+
+    def test_explicit_tempo_always_wins(self):
+        self.assertEqual(self.resolved("--tempo", "1.0").tempo, 1.0)
+        self.assertEqual(self.resolved("--engine", "gemini", "--tempo", "0.9").tempo, 0.9)
+
+    def test_explicit_voice_conflicts_are_errors(self):
+        for argv in (["--engine", "gemini"], ["--speaker", "ryan"], ["--instruct", "Calm."]):
+            with self.subTest(argv=argv), self.assertRaises(ValueError):
+                self.resolved("--voice", "michael", *argv)
 
 
 if __name__ == "__main__":

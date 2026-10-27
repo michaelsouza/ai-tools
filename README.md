@@ -269,43 +269,50 @@ python tools/audio_transcribe_gui.py
 
 ### `md2audio.py`
 
-Markdown → narration WAV via Gemini TTS on OpenRouter (default) or local Qwen3-TTS CustomVoice.
+Markdown → narration WAV. By default it narrates in pt-BR with **your own voice**, cloned locally by
+Qwen3-TTS from `models/voices/michael.wav` and slowed to 0.86×; Qwen preset speakers and Gemini TTS
+(OpenRouter) are one flag away.
 
-Engine choice comes from the pt-BR benchmark ([benchmarks/tts/README.md](benchmarks/tts/README.md)):
-in blind listening Gemini 3.8 Flash-Lite TTS scored 4.95/5 and the best local model 3.25–3.40
-([ADR 0002](docs/adr/0002-default-to-gemini-tts-keep-qwen3-1.7b-local.md)).
+| Default | Value | Changes when |
+|---|---|---|
+| `--language` | `pt-br` | `--language en` |
+| `--engine` | `qwen` (local GPU) | `--engine gemini` |
+| `--voice` | `michael` (clone, `models/Qwen3-TTS-12Hz-1.7B-Base`) | dropped by `--speaker`, `--instruct` or `--engine gemini` |
+| `--tempo` | `0.86` with the clone, `1.0` otherwise | any explicit `--tempo` wins |
+| `-o/--output` | `outputs/audio/<input name>.wav` + copy of the Markdown | `-o` writes elsewhere, no copy |
 
-- Requires explicit `--language en` or `--language pt-br` (used for the "omitted" cues; Gemini detects the
-  spoken language itself).
-- `--engine gemini` (default): `google/gemini-3.8-flash-lite-tts`, voice `Kore`, `OPENROUTER_API_KEY` from the
-  repo `.env`. Chunks go out as parallel requests (`--workers`, default 4) with retries on 429/5xx. Roughly
-  US$ 0.60 per hour of audio; `--dry-run` prints the character count. Other voices: `Leda`, `Aoede`, `Puck`,
-  `Charon`… (30 in all, listed in the model's `supported_voices` on OpenRouter). No `--instruct`.
-- `--engine qwen`: local GPU, defaults to `models/Qwen3-TTS-12Hz-1.7B-CustomVoice`, speaker `ryan`.
-  If `qwen-tts` warns that SoX is missing, install the system binary with `sudo apt install sox`.
-- `--voice <name>`: narrates in a recorded voice (yours) by cloning `models/voices/<name>.wav` with
-  `models/Qwen3-TTS-12Hz-1.7B-Base`; implies `--engine qwen` and excludes `--speaker`/`--instruct`.
-  Record and prepare the reference with [`voice_ref.py`](#voice_refpy).
-- Output defaults to `outputs/audio/<input name>.wav` (git-ignored), with a copy of the Markdown beside it;
-  `-o` writes elsewhere and skips the copy. Reports elapsed time, audio duration and realtime factor.
-- **Flags:** `-o/--output`, `--language`, `--engine`, `--voice` (qwen), `--model`, `--speaker`, `--instruct` (qwen),
-  `--device` (qwen), `--chunk-chars`, `--batch-size` (qwen), `--workers` (gemini), `--dry-run`, `--keep-temp`,
-  `--flash-attention` (qwen).
+Why these defaults: [ADR 0004](docs/adr/0004-default-to-the-users-cloned-voice.md); engine comparison in the
+pt-BR benchmark ([benchmarks/tts/README.md](benchmarks/tts/README.md), [ADR 0002](docs/adr/0002-default-to-gemini-tts-keep-qwen3-1.7b-local.md)).
 
-Setup for `--engine qwen`:
+- **Your voice** (`--voice <name>`): zero-shot clone of `models/voices/<name>.wav` plus its exact transcript
+  `<name>.txt`, prepared with [`voice_ref.py`](#voice_refpy). Cannot be combined with an explicit `--speaker`,
+  `--instruct` or `--engine gemini`. The clone speaks ~17% faster than the reference recording, hence the 0.86.
+- **Qwen preset speakers** (`--speaker ryan`, `Aiden`…): `models/Qwen3-TTS-12Hz-1.7B-CustomVoice`, optional
+  `--instruct` style prompt. None of the 9 speakers is a native Portuguese voice.
+- **Gemini** (`--engine gemini`): `google/gemini-3.8-flash-lite-tts`, voice `Kore` (or `Leda`, `Aoede`, `Puck`…,
+  30 in all), `OPENROUTER_API_KEY` from the repo `.env`, parallel requests (`--workers`, default 4) with retries
+  on 429/5xx. Best quality in the blind listening test (4.95/5); about US$ 0.60 per hour of audio. No `--instruct`.
+- `--tempo` (0.5–2.0) changes speed without changing pitch, via ffmpeg `atempo`.
+- `--dry-run` prints engine, model, voice, tempo, character count and the chunks, without synthesizing.
+  If `qwen-tts` warns that SoX is missing, install it with `sudo apt install sox`.
+- **Flags:** `-o/--output`, `--language`, `--engine`, `--voice`, `--model`, `--speaker`, `--instruct` (qwen),
+  `--device` (qwen), `--chunk-chars`, `--batch-size` (qwen), `--workers` (gemini), `--tempo`, `--dry-run`,
+  `--keep-temp`, `--flash-attention` (qwen).
+
+Setup (local engine):
 ```bash
 pip install -U qwen-tts soundfile torch
-huggingface-cli download Qwen/Qwen3-TTS-Tokenizer-12Hz --local-dir models/Qwen3-TTS-Tokenizer-12Hz
+huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir models/Qwen3-TTS-12Hz-1.7B-Base
 huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
-huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir models/Qwen3-TTS-12Hz-1.7B-Base   # --voice only
 ```
 
 ```bash
-python tools/md2audio.py article.md --language pt-br --dry-run
-python tools/md2audio.py article.md --language pt-br -o article.wav
-python tools/md2audio.py article.md --language pt-br --speaker Leda
-python tools/md2audio.py article.md --language en --engine qwen --speaker Aiden --instruct "Calm lecture style."
-python tools/md2audio.py article.md --language pt-br --voice michael
+python tools/md2audio.py article.md                     # your voice, pt-br, 0.86x
+python tools/md2audio.py article.md --tempo 1.0         # your voice at its natural speed
+python tools/md2audio.py article.md --speaker ryan      # Qwen preset speaker
+python tools/md2audio.py article.md --engine gemini     # Gemini, voice Kore
+python tools/md2audio.py article.md --language en --speaker Aiden --instruct "Calm lecture style."
+python tools/md2audio.py article.md --dry-run
 ```
 
 ### `voice_ref.py`
