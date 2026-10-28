@@ -59,7 +59,8 @@
   }
   #status { flex: 1 1 0; min-width: 0; text-align: right; color: var(--muted); font-size: 12px; }
   #status.error { color: var(--danger); }
-  #fit { flex: none; white-space: nowrap; }
+  #fit { flex: none; align-self: center; display: flex; padding: 3px; }
+  #fit svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 
   #composer { padding: 14px 18px; border-bottom: 1px solid var(--line); }
   #composer[hidden] { display: none; }
@@ -268,12 +269,18 @@ new ResizeObserver(() => {
 
 // The fit is remembered by the browser for each file, so slides and articles each keep theirs.
 const fitButton = document.getElementById("fit");
+// The button shows the fit it switches to: arrows out to the sides, or a whole page with arrows to its ends.
+const fitIcons = {
+  width: '<svg viewBox="0 0 16 16"><rect x="3" y="1.5" width="10" height="13" rx="1"/><path d="M1 8h14M3.5 5.5 1 8l2.5 2.5M12.5 5.5 15 8l-2.5 2.5"/></svg>',
+  page: '<svg viewBox="0 0 16 16"><rect x="3" y="1.5" width="10" height="13" rx="1"/><path d="M8 4v8M6 6l2-2 2 2M6 10l2 2 2-2"/></svg>',
+};
 const fitKey = () => `pdf-review:fit:${document.getElementById("name").title}`;
 
 function setFit(next) {
   fit = next;
-  fitButton.textContent = fit === "page" ? "Fit width" : "Fit page";
-  fitButton.title = fit === "page" ? "Fill the width and scroll the page (F)" : "Show each page whole (F)";
+  fitButton.innerHTML = fitIcons[fit === "page" ? "width" : "page"];
+  fitButton.title = fit === "page" ? "Fit width: fill the width and scroll the page (F)" : "Fit page: show each page whole (F)";
+  fitButton.setAttribute("aria-label", fitButton.title);
 }
 
 function applySavedFit() {

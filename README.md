@@ -115,7 +115,7 @@ Comment on a PDF in the browser: select a passage and the comment box opens.
   portrait monitor) the comments go below the PDF instead. Drag the bar between them to resize (remembered by the
   browser, separately for each layout); double-click it to reset.
 - Each page is shown whole, as large as the PDF panel allows, and re-fitted whenever the panel changes size: right
-  for slides. **Fit width** in the header (or **F**) fills the panel's width instead, up to 1.6× the PDF's size, and
+  for slides. The fit button in the header (↔ icon, or **F**) fills the panel's width instead, up to 1.6× the PDF's size, and
   the page scrolls: better for an article in a wide window. The choice is remembered by the browser for each file.
 - **Enter** saves, **Shift+Enter** breaks the line, **Esc** cancels. Outside the comment box, **←** and **→** go to
   the previous and next page, centred in the view when it fits.
