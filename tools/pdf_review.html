@@ -59,6 +59,7 @@
   }
   #status { flex: 1 1 0; min-width: 0; text-align: right; color: var(--muted); font-size: 12px; }
   #status.error { color: var(--danger); }
+  #fit { flex: none; white-space: nowrap; }
 
   #composer { padding: 14px 18px; border-bottom: 1px solid var(--line); }
   #composer[hidden] { display: none; }
@@ -115,7 +116,7 @@
 <main id="viewer"></main>
 <div id="splitter" role="separator" title="Drag to resize · double-click to reset"></div>
 <aside>
-  <header><h1 id="name">Loading…</h1><span id="status"></span></header>
+  <header><h1 id="name">Loading…</h1><span id="status"></span><button id="fit"></button></header>
   <section id="composer" hidden>
     <blockquote id="quote"></blockquote>
     <textarea id="note" placeholder="Comment"></textarea>
@@ -198,8 +199,15 @@ async function loadDocument() {
   }
 }
 
+// "page" shows each page whole, as large as the viewer allows (slides); "width" fills the viewer's width, up to
+// 1.6 times the PDF's size so an article's lines stay readable, and the page scrolls (articles). Never smaller
+// than the whole page, so a small slide in a wide window does not shrink.
+let fit = "page";
+
 function fitScale(slot) {
-  return Math.min(1.6, (viewer.clientWidth - 48) / slot.base.width);
+  const across = (viewer.clientWidth - 48) / slot.base.width;  // the viewer's 24px padding on both sides
+  const whole = Math.min(across, (viewer.clientHeight - 40) / slot.base.height);  // 20px above and below, in the 24px gap
+  return fit === "width" ? Math.max(whole, Math.min(1.6, across)) : whole;
 }
 
 function size(slot) {
@@ -239,7 +247,7 @@ async function render(slot) {
   slot.div.append(text);
 }
 
-// Pages fit the viewer's width: after it changes, resize them and stay at the same text.
+// Pages fit the viewer: after its size or the fit changes, resize them and stay at the same text.
 function relayout() {
   const position = readingPosition();
   pages.forEach(size);
@@ -247,11 +255,44 @@ function relayout() {
   visible.forEach(render);
 }
 
+// Any change of the viewer's size: the window, the splitter, the switch between the two layouts.
 let resizeTimer;
-window.addEventListener("resize", () => {
+let viewerSize = "";
+new ResizeObserver(() => {
+  const now = `${viewer.clientWidth}x${viewer.clientHeight}`;
+  if (now === viewerSize) return;
+  viewerSize = now;
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(relayout, 150);
-});
+}).observe(viewer);
+
+// The fit is remembered by the browser for each file, so slides and articles each keep theirs.
+const fitButton = document.getElementById("fit");
+const fitKey = () => `pdf-review:fit:${document.getElementById("name").title}`;
+
+function setFit(next) {
+  fit = next;
+  fitButton.textContent = fit === "page" ? "Fit width" : "Fit page";
+  fitButton.title = fit === "page" ? "Fill the width and scroll the page (F)" : "Show each page whole (F)";
+}
+
+function applySavedFit() {
+  let saved = null;
+  try { saved = localStorage.getItem(fitKey()); } catch {}
+  const next = saved === "width" ? "width" : "page";
+  if (next === fit) return;
+  setFit(next);
+  relayout();
+}
+
+function toggleFit() {
+  setFit(fit === "page" ? "width" : "page");
+  try { localStorage.setItem(fitKey(), fit); } catch {}
+  relayout();
+}
+
+fitButton.addEventListener("click", toggleFit);
+setFit(fit);
 
 // ---------- Splitter ----------
 
@@ -299,14 +340,12 @@ splitter.addEventListener("lostpointercapture", () => {  // after pointerup, and
   document.body.classList.remove("dragging");
   saveSide(dragged);
   dragged = null;
-  relayout();
 });
 splitter.addEventListener("dblclick", () => {
   saveSide(null);
   setSide(null);
-  relayout();
 });
-portrait.addEventListener("change", applySavedSide);  // the window's resize event re-lays the pages
+portrait.addEventListener("change", applySavedSide);  // the viewer's ResizeObserver re-lays the pages
 applySavedSide();
 
 // ---------- Marks ----------
@@ -471,8 +510,8 @@ function showList() {
 function reveal(pageNumber, rects, markKey) {
   const slot = pages[pageNumber - 1];
   if (!slot) return;
-  const top = slot.div.offsetTop + rects[0][1] * slot.div.offsetHeight - viewer.clientHeight / 3;
-  viewer.scrollTop = top;
+  const fits = slot.div.offsetHeight <= viewer.clientHeight;  // the whole page, else the passage a third down
+  viewer.scrollTop = fits ? pageTop(slot) : slot.div.offsetTop + rects[0][1] * slot.div.offsetHeight - viewer.clientHeight / 3;
   document.querySelectorAll("#lists li").forEach((li) => li.classList.toggle("active", li.dataset.key === markKey));
   document.querySelectorAll(".mark").forEach((m) => m.classList.toggle("flash", m.dataset.key === markKey));
 }
@@ -536,15 +575,21 @@ function restore(position) {
   viewer.scrollTop = slot.div.offsetTop + position.into * slot.div.offsetHeight;
 }
 
-// ← and → go to the start of the previous and next page, counted from the page at the top of the view.
+// Where ← and → leave a page: centred when it fits in the view, else its top edge and a little of the gap above.
+const pageTop = (slot) => slot.div.offsetTop - Math.max(12, (viewer.clientHeight - slot.div.offsetHeight) / 2);
+
+// ← and → go to the previous and next page, counted from the last page whose start was passed; F switches the fit.
 document.addEventListener("keydown", (event) => {
-  const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
   const typing = event.target.closest?.("textarea, input, [contenteditable]");
-  if (!step || typing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !pages.length) return;
+  if (typing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !pages.length) return;
+  if (event.key === "f") return toggleFit();
+  const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+  if (!step) return;
   event.preventDefault();
-  const current = readingPosition().page;
+  const atEnd = viewer.scrollTop + viewer.clientHeight >= viewer.scrollHeight - 1;  // the last page can't scroll to its place
+  const current = atEnd ? pages.length : pages.findLast((s) => pageTop(s) <= viewer.scrollTop + 1)?.n ?? 1;
   const slot = pages[Math.min(Math.max(current + step, 1), pages.length) - 1];
-  viewer.scrollTop = slot.div.offsetTop - 12;  // a little of the gap above, so the page's edge shows
+  viewer.scrollTop = pageTop(slot);
 });
 
 async function reload() {
@@ -574,6 +619,7 @@ async function watch() {
 try {
   await loadDocument();
   await loadComments();
+  applySavedFit();
   say(comments.length ? `${comments.length} comments` : "");
 } catch (problem) {
   say(`Could not open the PDF: ${problem.message}`, true);
