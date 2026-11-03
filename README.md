@@ -143,6 +143,121 @@ python tools/pdf_review.py _output/paper.pdf --copy   # comments go to ./paper-c
 python tools/pdf_review.py _output/paper.pdf --history paper-commented-*.pdf
 ```
 
+#### Reviewing a document built from sources: `serve` and `comments`
+
+For a LaTeX or Quarto document, two subcommands build the PDF, keep it current and find each comment in the
+sources, so a project needs no scripts of its own. `tools/pdf-review` runs them with their dependencies
+(`uv run --project <ai-tools> --with pymupdf ...`) from any folder; link it into your `PATH` if you like
+(`ln -s ~/gitrepos/ai-tools/tools/pdf-review ~/.local/bin/`).
+
+```bash
+tools/pdf-review serve [TARGET] [--port N] [--no-browser] [--author NAME] [--history PDF...]
+tools/pdf-review comments [TARGET] [--all] [--mark-read]
+tools/pdf-review paper.pdf --copy          # the plain review above still works
+```
+
+- **`serve`** builds the PDF (output in a log file), opens the review page on it once a first PDF exists, and
+  rebuilds it when a source changes; the page reloads by itself. The journal of the page is the project's, so the
+  comments a rebuild erases are kept there. A failed build does not stop the review: it prints one line with the
+  log path, and the page shows whatever PDF the build left. Ctrl+C or SIGTERM end the build too (each build runs in
+  its own process group). The port is checked before building: pass `--port N` when another review uses 8765.
+- **`comments`** lists the comments not handled yet, oldest first, with page, `file:line`, passage and comment;
+  `--all` lists the handled ones too, and `--mark-read` records the listed ones as handled (a JSON list of uids,
+  the `read` file). Each line says how it was found:
+  - `(synctex)`: the passage was found in the current PDF and SyncTeX named the line under its first word, refined
+    by the marked words within 10 lines (SyncTeX may point at the end of a paragraph). Needs
+    `<pdf-stem>.synctex.gz`, so build with `pdflatex -synctex=1` (or `latexmk -synctex=1`), and the `synctex` CLI.
+  - `(synctex, recorded position)`: the passage is no longer in the PDF, or appears more than once, so SyncTeX was
+    asked about the place the comment had; the journal records that place since this version (older entries fall
+    back to the words).
+  - SyncTeX's answer counts only when the marked words are near its line: it may name the wrong file (the last
+    paragraph of an `\input` file is tagged with the next file), so otherwise the words below decide. When they are
+    found nowhere (math, or a rewritten passage), SyncTeX's line is given with `, unconfirmed`.
+  - `(exact text)` or `(approximate)`: the marked words were looked up in the source files (Quarto, or no SyncTeX):
+    exactly, or the line holding at least 60% of them. Whole-line `%` comments of `.tex` files are skipped.
+  - `line not found`: the passage was rewritten, or is too short to tell.
+- **Two builds.** A `watch` build is one long-running command that rebuilds by itself, like `quarto preview`; the
+  page opens when its log matches `ready` (or, without `ready`, when the PDF exists), and fails after 10 minutes or
+  if the command dies first. A `once` build is a command run to the end, again whenever a `watch` file changes
+  (checked every second, by modification time, without inotify). The PDF and the review files are never watched:
+  the page writes the comments into the PDF.
+
+**Project without a config.** In the current folder, or in TARGET (a folder or the main file):
+
+- one `.qmd` → `quarto preview <file> --to pdf --no-serve --no-browser` (watch, ready on "Watching files for
+  changes"); the PDF goes to `output-dir` of `_quarto.yml` when it sets one;
+- otherwise one main `.tex` (with `\documentclass`) beside a `Makefile` → `make` (once, watching `**/*.tex`, `.bib`,
+  `.sty`, `.cls`, `.png`, `.jpg`, `.pdf`);
+- anything else, or two candidates, is an error asking for a `pdf-review.toml`. The review files go to `_review/`.
+
+**`pdf-review.toml`** is looked up from the current folder upwards (TOML, so it takes comments). Paths and globs
+are relative to its folder; globs take `**`. Without `[build] command`, the config only moves files and the build
+comes from the convention above, applied to the nearest folder holding a document, from the folder of `pdf` (else
+TARGET, else the config's folder) up to the config's folder; the build runs there. `comments` never builds, so it
+works without a document to build as long as `pdf` is set.
+
+| Key | Meaning | Default |
+| --- | --- | --- |
+| `pdf` | the PDF the build makes | required with `command` |
+| `sources` | globs of the files searched for a comment's line | `["**/*.tex", "**/*.qmd"]` |
+| `review_dir` | folder of the review files below | `_review` |
+| `journal` | the page's journal of comments | `<review_dir>/comments.json` |
+| `read` | the uids of the handled comments | `<review_dir>/read.json` |
+| `build.command` | a list, or a string split like a shell does (no pipes or `&&`) | by convention |
+| `build.mode` | `"watch"` or `"once"` | `"once"` |
+| `build.ready` | `watch`: regular expression of the log meaning the first PDF is done | none: the PDF exists |
+| `build.cwd` | folder the command runs in | the config's folder |
+| `build.watch` | `once`: globs whose change rebuilds | `sources` |
+| `build.log` | the build's output, rewritten at each build | `<review_dir>/build.log` |
+
+`{target}` anywhere in the config is replaced by TARGET, as a path relative to the config's folder, whatever folder
+the command runs from. A config with `{target}` requires TARGET, a folder; one without refuses it. Keep the log
+and the review folder git-ignored unless you mean to version the journal.
+
+A Quarto paper in `paper/` (config at the repository root):
+
+```toml
+# pdf-review.toml
+pdf = "paper/_output/paper-pt.pdf"
+sources = ["paper/paper-pt.qmd"]
+review_dir = "paper/_review"                  # git-ignored
+journal = "paper/_review/paper-pt.comments.json"
+read = "paper/_review/lidos.json"              # an existing list of handled comments (default: read.json)
+
+[build]
+command = ["quarto", "preview", "paper-pt.qmd", "--to", "pdf", "--no-serve", "--no-browser"]
+cwd = "paper"
+mode = "watch"                                 # quarto preview rebuilds by itself
+ready = "Watching files for changes"           # its log says this once the first PDF is done
+log = "paper/_review/quarto.log"
+```
+
+A repository of many LaTeX texts, `students/<student>/<text>/{source,review}`, sharing one Makefile:
+
+```toml
+# pdf-review.toml: pdf-review serve students/ana/thesis
+pdf = "{target}/source/documento.pdf"
+sources = ["{target}/source/**/*.tex"]
+review_dir = "{target}/review"                 # comments.json and read.json
+read = "{target}/review/lidos.json"
+
+[build]
+command = "make -s pdf T={target}/source"      # pdflatex -synctex=1 in the Makefile enables SyncTeX
+mode = "once"
+watch = [
+  "{target}/source/**/*.tex",
+  "{target}/source/**/*.bib",
+  "{target}/source/figuras/**/*",
+  "templates/**/*.sty",
+]
+log = "{target}/source/build.log"              # ignored by git, unlike review/
+```
+
+```bash
+tools/pdf-review serve students/ana/thesis --no-browser --port 8766
+tools/pdf-review comments students/ana/thesis --mark-read
+```
+
 ### `flowchart.py`
 
 Source code → flowchart PNG (Python, C, C++).

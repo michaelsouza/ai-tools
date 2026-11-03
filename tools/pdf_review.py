@@ -19,6 +19,14 @@ records every comment the page has shown, and ``--history`` adds the comments
 of older annotated PDFs.  Each past comment is looked up in the current PDF by
 its marked words: found once, it is highlighted in another colour; not found,
 the passage was rewritten.
+
+For a document built from sources (LaTeX, Quarto), two subcommands do the
+rest: ``serve`` builds the PDF, rebuilds it when a source changes and opens
+this page on it; ``comments`` lists the comments not yet handled with their
+file and line in the sources.  See ``pdf_review_project.py``.
+
+    tools/pdf-review serve
+    tools/pdf-review comments --mark-read
 """
 
 from __future__ import annotations
@@ -30,6 +38,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import threading
 import uuid
 import webbrowser
@@ -242,7 +251,7 @@ class CommentJournal:
     held them, which groups the past comments into review rounds.
     """
 
-    FIELDS = ("page", "marked", "text", "author")
+    FIELDS = ("page", "marked", "text", "author")  # a change in these, or a new version, rewrites the entry
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -262,6 +271,8 @@ class CommentJournal:
                 entry = {field: comment[field] for field in self.FIELDS}
                 old = entries.get(comment["uid"], {})
                 if {field: old.get(field) for field in self.FIELDS} != entry or old.get("version") != version:
+                    if comment.get("rects"):  # where it was shown, to find its source line with SyncTeX later
+                        entry["rects"] = [[round(x, 4) for x in rect] for rect in comment["rects"]]
                     entries[comment["uid"]] = entry | {
                         "version": version,
                         "seen": datetime.now().isoformat("T", "minutes"),
@@ -321,8 +332,12 @@ class PassageIndex:
                     self.places.append(place)
                 i += 1
 
-    def find(self, marked: str) -> dict:
-        """``found`` with its page and line rectangles, ``repeated``, ``changed`` or ``no-text``."""
+    def find(self, marked: str, near_page: int | None = None) -> dict:
+        """``found`` with its page and line rectangles, ``repeated``, ``changed`` or ``no-text``.
+
+        A passage found several times counts as found when exactly one of
+        them is on ``near_page``.
+        """
         wanted = _tokens(marked)
         if not wanted:
             return {"status": "no-text"}
@@ -334,6 +349,9 @@ class PassageIndex:
         ]
         if not starts:
             return {"status": "changed"}
+        if len(starts) > 1 and near_page is not None:
+            on_page = [start for start in starts if self.places[start][0] == near_page]
+            starts = on_page if len(on_page) == 1 else starts
         if len(starts) > 1:
             return {"status": "repeated", "count": len(starts)}
         page = self.places[starts[0]][0]
@@ -516,8 +534,58 @@ def make_handler(store: CommentStore, history: ReviewHistory, page_html: bytes) 
     return Handler
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+PROJECT_COMMANDS = ("serve", "comments")
+
+
+def existing_file(text: str) -> Path:
+    path = Path(text)
+    if not path.is_file():
+        raise argparse.ArgumentTypeError(f"file not found: {text}")
+    return path
+
+
+def add_server_options(parser: argparse.ArgumentParser) -> None:
+    """Options of the review page, shared with the ``serve`` subcommand."""
+    parser.add_argument(
+        "--history", type=existing_file, nargs="+", default=[], metavar="PDF", help="older annotated PDFs to show"
+    )
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--author", default=getpass.getuser(), help="name stored with each comment")
+    parser.add_argument("--no-browser", action="store_true", help="do not open the page")
+
+
+def review(pdf: Path, journal: Path, args: argparse.Namespace) -> None:
+    """Serve the review page for ``pdf`` until Ctrl+C; ``args`` holds the options of ``add_server_options``."""
+    store = CommentStore(pdf.resolve(), args.author)
+    archives = [path.resolve() for path in args.history if path.resolve() != store.pdf]
+    handler = make_handler(store, ReviewHistory(CommentJournal(journal), archives), PAGE_HTML.read_bytes())
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
+    url = f"http://localhost:{args.port}/"
+    print(f"Reviewing {pdf} at {url} (Ctrl+C to stop)", flush=True)
+    print(f"Past comments are recorded in {journal}", flush=True)
+    if not args.no_browser:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+def main(argv: list[str] | None = None) -> None:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] in PROJECT_COMMANDS:
+        if __package__:  # imported as tools.pdf_review
+            from . import pdf_review_project
+        else:  # run as a script from tools/
+            import pdf_review_project
+        return pdf_review_project.main(argv)
+
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        epilog="For a document built from sources: pdf_review.py serve|comments -h",
+    )
     parser.add_argument("pdf", type=Path, help="PDF to comment on; it is written in place unless --copy")
     parser.add_argument(
         "--copy",
@@ -526,19 +594,11 @@ def main() -> None:
         metavar="PATH",
         help="comment on a copy, reused if it exists (default: ./<name>-comments.pdf)",
     )
-    parser.add_argument(
-        "--history", type=Path, nargs="+", default=[], metavar="PDF", help="older annotated PDFs whose comments to show"
-    )
     parser.add_argument("--journal", type=Path, help="file recording past comments (default: <pdf>.comments.json)")
-    parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--author", default=getpass.getuser(), help="name stored with each comment")
-    parser.add_argument("--no-browser", action="store_true", help="do not open the page")
-    args = parser.parse_args()
+    add_server_options(parser)
+    args = parser.parse_args(argv)
     if not args.pdf.is_file():
         parser.error(f"PDF not found: {args.pdf}")
-    missing = [str(path) for path in args.history if not path.is_file()]
-    if missing:
-        parser.error(f"history PDF not found: {', '.join(missing)}")
 
     pdf = args.pdf
     if args.copy:
@@ -548,23 +608,7 @@ def main() -> None:
         except ValueError as problem:
             parser.error(str(problem))
         print(f"{'Copied' if made else 'Reusing the existing copy'}: {pdf}")
-
-    store = CommentStore(pdf.resolve(), args.author)
-    journal = CommentJournal(args.journal or pdf.with_name(pdf.name + ".comments.json"))
-    archives = [path.resolve() for path in args.history if path.resolve() != store.pdf]
-    handler = make_handler(store, ReviewHistory(journal, archives), PAGE_HTML.read_bytes())
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
-    url = f"http://localhost:{args.port}/"
-    print(f"Reviewing {pdf} at {url} (Ctrl+C to stop)")
-    print(f"Past comments are recorded in {journal.path}")
-    if not args.no_browser:
-        webbrowser.open(url)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
+    review(pdf, args.journal or pdf.with_name(pdf.name + ".comments.json"), args)
 
 
 if __name__ == "__main__":

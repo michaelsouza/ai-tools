@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Run tools/pdf_review.py with its dependencies from any folder, also through a symlink:
+#
+#   pdf-review serve [TARGET] [--port N] [--no-browser]
+#   pdf-review comments [TARGET] [--all] [--mark-read]
+#   pdf-review paper.pdf [--copy]
+set -euo pipefail
+
+tools="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+uv="$(command -v uv || echo "$HOME/.local/bin/uv")"
+exec "$uv" run --quiet --project "$tools/.." --with pymupdf python "$tools/pdf_review.py" "$@"

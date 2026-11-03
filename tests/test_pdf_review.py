@@ -184,6 +184,13 @@ class PassageIndexTests(unittest.TestCase):
     def test_note_without_marked_words(self):
         self.assertEqual(self.index(["anything"]).find("")["status"], "no-text")
 
+    def test_repeated_passage_on_the_named_page_is_found(self):
+        document = pymupdf.open()
+        for text in ("the cost", "and the cost"):
+            document.new_page().insert_text((72, 100), text)
+        found = PassageIndex(document).find("the cost", near_page=2)
+        self.assertEqual((found["status"], found["page"]), ("found", 2))
+
 
 @unittest.skipIf(pymupdf is None, "requires pymupdf")
 class HistoryTests(unittest.TestCase):
@@ -225,6 +232,21 @@ class HistoryTests(unittest.TestCase):
         self.store.edit(1, added["xref"], "second")
         self.journal.record(self.store.comments(), self.store.version())
         self.assertEqual([entry["text"] for entry in self.journal.entries().values()], ["second"])
+
+    def test_journal_keeps_where_the_comment_was(self):
+        self.comment("beta", "here")
+        self.journal.record(self.store.comments(), self.store.version())
+        (entry,) = self.journal.entries().values()
+        self.assertEqual((len(entry["rects"]), len(entry["rects"][0])), (1, 4))
+
+    def test_older_entry_without_rects_is_left_alone(self):
+        (comment,) = [self.comment("beta", "here")]
+        version = self.store.version()
+        old = {"page": 1, "marked": "beta", "text": "here", "author": "ana", "version": version, "seen": "then"}
+        self.journal.path.write_text(json.dumps({comment["uid"]: old}), encoding="utf-8")
+        before = self.journal.path.read_text(encoding="utf-8")
+        self.journal.record(self.store.comments(), version)
+        self.assertEqual(self.journal.path.read_text(encoding="utf-8"), before)
 
     def test_deleted_comment_is_forgotten(self):
         added = self.comment("beta", "mistake")
