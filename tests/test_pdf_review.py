@@ -8,7 +8,7 @@ from pathlib import Path
 
 try:
     import pymupdf
-except ImportError:  # run with ``uv run --with pymupdf``
+except ImportError:  # installed by ``uv sync``
     pymupdf = None
 
 if pymupdf is not None:

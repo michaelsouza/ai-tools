@@ -4,11 +4,13 @@ CLI helpers for PDFs, web pages, audio, bibliography, and token counts.
 
 ## Install
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-playwright install chromium
+uv sync                             # creates .venv from pyproject.toml and uv.lock
+uv run playwright install chromium
+sudo apt install libportaudio2 sox  # microphone input (audio_transcribe) and qwen-tts
 ```
+
+Run tools with `uv run python tools/<tool>.py ...`, or `source .venv/bin/activate` first and call `python` directly.
+Add a dependency with `uv add <package>`; commit `pyproject.toml` and `uv.lock` together.
 
 ## Configure
 Create `.env` in repo root for Mistral OCR and OpenRouter (`scopus_rank.py`):
@@ -136,7 +138,7 @@ Comment on a PDF in the browser: select a passage and the comment box opens.
 
 ```bash
 python tools/pdf_review.py paper.pdf
-uv run --with pymupdf python tools/pdf_review.py paper.pdf --author "Ana"
+python tools/pdf_review.py paper.pdf --author "Ana"
 python tools/pdf_review.py _output/paper.pdf --copy   # comments go to ./paper-comments.pdf
 python tools/pdf_review.py _output/paper.pdf --history paper-commented-*.pdf
 ```
@@ -304,7 +306,7 @@ pt-BR benchmark ([benchmarks/tts/README.md](benchmarks/tts/README.md), [ADR 0002
 
 Setup (local engine):
 ```bash
-pip install -U qwen-tts soundfile torch
+uv sync
 huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir models/Qwen3-TTS-12Hz-1.7B-Base
 huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
 ```

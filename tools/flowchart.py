@@ -115,7 +115,7 @@ class CCppAnalyzer:
     def __init__(self, language="c"):
         if not TREE_SITTER_AVAILABLE:
             raise ImportError(
-                "tree-sitter packages not available. Install with: pip install tree-sitter tree-sitter-c tree-sitter-cpp"
+                "tree-sitter packages not available. Install with: uv sync"
             )
 
         self.language = language
@@ -331,7 +331,7 @@ def main():
                     file=sys.stderr,
                 )
                 print(
-                    "Install with: pip install tree-sitter tree-sitter-c tree-sitter-cpp",
+                    "Install with: uv sync",
                     file=sys.stderr,
                 )
                 sys.exit(1)

@@ -25,28 +25,28 @@ try:
     import customtkinter as ctk
 except ImportError:
     print("Error: customtkinter not installed.")
-    print("Install with: pip install customtkinter")
+    print("Install with: uv sync")
     exit(2)
 
 try:
     from faster_whisper import WhisperModel
 except ImportError:
     print("Error: faster-whisper not installed.")
-    print("Install with: pip install faster-whisper")
+    print("Install with: uv sync")
     exit(2)
 
 try:
     import sounddevice as sd
 except ImportError:
     print("Error: sounddevice not installed.")
-    print("Install with: pip install sounddevice")
+    print("Install with: uv sync")
     exit(2)
 
 try:
     import numpy as np
 except ImportError:
     print("Error: numpy not installed.")
-    print("Install with: pip install numpy")
+    print("Install with: uv sync")
     exit(2)
 
 # Constants

@@ -104,8 +104,8 @@ of kernel launches may be lower than under WSL2.
   appears twice in the source). The penalty is applied only on the retry, so
   normal pages keep the model-card sampling.
 - **AES-encrypted PDFs** (some SPE/Elsevier downloads) fail in PyPDF2 with
-  `PyCryptodome is required for AES`; `pycryptodome` is now in
-  `requirements.txt`.
+  `PyCryptodome is required for AES`; `pycryptodome` is now a
+  project dependency.
 
 ## Local engine benchmark (2026-09-22)
 

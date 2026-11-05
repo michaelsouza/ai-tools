@@ -51,7 +51,7 @@ try:
     import yt_dlp
 except ImportError:
     print("Error: yt-dlp is not installed.", file=sys.stderr)
-    print("Install it with: pip install yt-dlp", file=sys.stderr)
+    print("Install it with: uv sync", file=sys.stderr)
     sys.exit(1)
 
 

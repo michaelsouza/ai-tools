@@ -5,11 +5,11 @@
 
 ## Install
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-playwright install chromium
+uv sync
+uv run playwright install chromium
+sudo apt install libportaudio2 sox
 ```
+Dependencies live in `pyproject.toml`, pinned by `uv.lock`. Add one with `uv add <package>` and commit both files together. Run tools with `uv run python tools/<tool>.py`.
 
 ## Configure
 Create a `.env` file in the repo root:

@@ -43,7 +43,7 @@ Models:
     - mdx_extra_q: Quantized version (faster)
 
 Requirements:
-    - demucs: pip install demucs
+    - demucs: uv sync
     - ffmpeg: System package (sudo apt install ffmpeg)
 """
 import argparse
@@ -350,7 +350,7 @@ Output:
     # Check if demucs is installed
     if not check_demucs_installed():
         print("Error: Demucs is not installed.", file=sys.stderr)
-        print("Install it with: pip install demucs", file=sys.stderr)
+        print("Install it with: uv sync", file=sys.stderr)
         sys.exit(1)
 
     # Validate output format options

@@ -27,7 +27,7 @@ try:
     import numpy as np
 except ImportError:
     print("Error: Required packages not found. Install with:")
-    print("  pip install Pillow numpy")
+    print("  uv sync")
     sys.exit(1)
 
 
@@ -164,7 +164,7 @@ async def render_html_to_png(html_path: str, output_path: str, scale: int = 3,
         from playwright.async_api import async_playwright
     except ImportError:
         print("Error: Playwright not found. Install with:")
-        print("  pip install playwright")
+        print("  uv sync")
         print("  playwright install chromium")
         sys.exit(1)
 

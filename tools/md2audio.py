@@ -13,11 +13,11 @@ Usage:
 
 Setup:
     qwen (default, local GPU):
-        pip install -U qwen-tts soundfile torch
+        uv sync
         huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir models/Qwen3-TTS-12Hz-1.7B-Base
         huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
         your voice: record and prepare it as in docs/voice_reference.md (tools/voice_ref.py)
-    gemini: OPENROUTER_API_KEY in the repo .env; pip install requests python-dotenv
+    gemini: OPENROUTER_API_KEY in the repo .env; uv sync
 
 Engine choice: docs/adr/0002 (pt-BR benchmark), 0003 (voice cloning), 0004 (current defaults).
 """
@@ -308,7 +308,7 @@ def load_qwen_model(model_name_or_path: str, device: str, use_flash_attention: b
         from qwen_tts import Qwen3TTSModel
     except ImportError as exc:
         raise RuntimeError(
-            "Qwen3-TTS dependencies are missing. Install them with: pip install -U qwen-tts soundfile torch"
+            "Qwen3-TTS dependencies are missing. Install them with: uv sync"
         ) from exc
 
     kwargs = {
@@ -422,7 +422,7 @@ def synthesize_qwen(
         import soundfile as sf
     except ImportError as exc:
         raise RuntimeError(
-            "soundfile is required to write Qwen3-TTS audio. Install it with: pip install soundfile"
+            "soundfile is required to write Qwen3-TTS audio. Install it with: uv sync"
         ) from exc
 
     resolved_device = resolve_device(device)
@@ -596,7 +596,7 @@ Examples:
 
 Setup:
   qwen (local GPU):
-  pip install -U qwen-tts soundfile torch
+  uv sync
   huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir models/Qwen3-TTS-12Hz-1.7B-Base
   huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --local-dir models/Qwen3-TTS-12Hz-1.7B-CustomVoice
   your voice: docs/voice_reference.md (tools/voice_ref.py)

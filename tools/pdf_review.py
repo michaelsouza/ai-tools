@@ -6,13 +6,13 @@ list of comments.  Releasing a text selection opens the box.  Each comment is
 saved into the PDF itself as a highlight annotation whose note holds the
 comment, so Okular, Acrobat and scripts that read annotations see it too.
 
-    uv run --with pymupdf python tools/pdf_review.py paper.pdf
+    uv run python tools/pdf_review.py paper.pdf
 
 The PDF is written in place, so a program that regenerates it (a LaTeX or
 Quarto build) erases the comments.  ``--copy`` avoids that by commenting on a
 copy, which a later run reuses:
 
-    uv run --with pymupdf python tools/pdf_review.py _output/paper.pdf --copy
+    uv run python tools/pdf_review.py _output/paper.pdf --copy
 
 Past comments stay visible below the current ones.  A journal next to the PDF
 records every comment the page has shown, and ``--history`` adds the comments
