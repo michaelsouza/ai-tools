@@ -1,7 +1,8 @@
 # Synthetic article for the OCR benchmark. Prose written for this benchmark (2026-11-05);
 # not published anywhere, so OCR models cannot have memorized it.
 # Syntax: LaTeX-safe prose; inline math in $...$; footnotes as ^[...].
-# Blocks: p (paragraph), eq (numbered display equation), align (multi-line, rows split by \\),
+# Blocks: p (paragraph), eq (numbered display equation; a list of rows is set with split, for equations
+# too wide for a column), align (multi-line, rows split by \\),
 # figure (pgfplots plot + caption).
 id: a01
 title: Variance-Aware Step Sizes for Stochastic Gradient Langevin Dynamics on Nonconvex Objectives
@@ -82,7 +83,9 @@ sections:
           $\langle \nabla U(x), x \rangle \ge m \lVert x \rVert^2 - b$. These conditions allow nonconvex
           potentials and are standard in the analysis of Langevin algorithms. Under them, the following bound holds
           for the law $\mu_k$ of the iterate $\theta_k$.
-      - eq: W_2(\mu_k, \pi) \le C_1 e^{-\lambda \sum_{j<k} \eta_j} W_2(\mu_0, \pi) + C_2 \sqrt{\eta_{\max} d} + C_3 \max_{j<k} \hat{\sigma}_j \sqrt{\eta_j}
+      - eq:
+          - W_2(\mu_k, \pi) &\le C_1 e^{-\lambda \sum_{j<k} \eta_j} W_2(\mu_0, \pi)
+          - '&\quad + C_2 \sqrt{\eta_{\max} d} + C_3 \max_{j<k} \hat{\sigma}_j \sqrt{\eta_j}'
       - p: >-
           The constants $C_1$, $C_2$ and $C_3$ depend on $L$, $m$ and $b$ but not on the dimension, and $\lambda$ is
           the contraction rate of the continuous diffusion in the Wasserstein metric. The first term vanishes as

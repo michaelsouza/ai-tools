@@ -141,17 +141,14 @@ J. ACM, Vol. 73, No. 6, Article 41. Publication date: November 2026.
 
 Variance-Aware Step Sizes for Stochastic Gradient Langevin Dynamics on Nonconvex Objectives
 
-𝑊2 (𝜇𝑘 , 𝜋) ≤ 𝐶 1𝑒 −𝜆
+41:3
 
 Í
 
-𝑗 <𝑘 𝜂 𝑗
-
+𝑊2 (𝜇𝑘 , 𝜋) ≤ 𝐶 1𝑒 −𝜆 𝑗 <𝑘 𝜂 𝑗 𝑊2 (𝜇0, 𝜋)
 √︁
 √
-𝑊2 (𝜇0, 𝜋) + 𝐶 2 𝜂 max𝑑 + 𝐶 3 max 𝜎ˆ 𝑗 𝜂 𝑗
-
-41:3
++ 𝐶 2 𝜂 max𝑑 + 𝐶 3 max 𝜎ˆ 𝑗 𝜂 𝑗
 
 (6)
 
@@ -167,7 +164,8 @@ the minibatch error as a martingale difference 𝜁𝑘 = 𝑔𝑘 − ∇𝑈 (
 of the step to separate the two regimes of the schedule:
 (
 𝜂 2 𝜎ˆ 2, 𝜎ˆ𝑘2 ≤ 2𝜌𝑑/𝜂 max,
-E∥𝜂𝑘 𝜁𝑘 ∥ 2 ≤ max 𝑘
+2
+E∥𝜂𝑘 𝜁𝑘 ∥ ≤ max 𝑘
 (7)
 2𝜌𝑑 𝜂𝑘 , otherwise.
 In both regimes the stochastic error is at most 2𝜌𝑑𝜂𝑘 , which is a fraction 𝜌 of the injected noise.

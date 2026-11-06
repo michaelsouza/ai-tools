@@ -136,20 +136,17 @@ We assume that U is L-smooth, that is, ∥∇U (x) − ∇U (y)∥ ≤ L∥x −
 and that it is (m, b)-dissipative, meaning ⟨∇U (x), x⟩ ≥ m∥x∥2 − b. These conditions allow
 nonconvex potentials and are standard in the analysis of Langevin algorithms. Under them,
 the following bound holds for the law µk of the iterate θk .
-W2 (µk , π) ≤ C1 e−λ
 
 P
 
-j<k ηj
-
-W2 (µ0 , π) + C2
-
+W2 (µk , π) ≤ C1 e−λ j<k ηj W2 (µ0 , π)
 p
 √
-ηmax d + C3 max σ̂j ηj
-j<k
++ C2 ηmax d + C3 max σ̂j ηj
 
 (6)
+
+j<k
 
 The constants C1 , C2 and C3 depend on L, m and b but not on the dimension, and λ is
 the contraction rate of the continuous diffusion in the Wasserstein metric. The first term
@@ -189,11 +186,11 @@ with N = 58,000 examples and d = 54 features. The second is a two-layer network 
 hidden units, for which the posterior is multimodal. Accuracy is measured by the kernel
 Stein discrepancy of 2000 retained samples and by the predictive log-likelihood on held-out
 data.
-On logistic regression the variance-aware schedule reaches a Stein discrepancy of 0.031 ±
-0.002, against 0.029 ± 0.002 for the best constant step found by a grid of eight values and
 4
 
-0.047 ± 0.004 for the decreasing schedule. On the network, the predictive log-likelihood
+On logistic regression the variance-aware schedule reaches a Stein discrepancy of 0.031 ±
+0.002, against 0.029 ± 0.002 for the best constant step found by a grid of eight values and
+0.047 ± 0.004 for the decreasing schedule. On the network, the predictive log-likelihood
 is −0.412 for our schedule and −0.409 for the tuned constant step, while the decreasing
 schedule stalls at −0.455 because its steps become too small before the chain leaves the
 initial mode.

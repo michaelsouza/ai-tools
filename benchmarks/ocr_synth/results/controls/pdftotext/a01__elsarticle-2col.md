@@ -95,6 +95,7 @@ step size ηk
 
 2
 
+On the network, the predictive log-likelihood is −0.412 for
 our schedule and −0.409 for the tuned constant step, while
 the decreasing schedule stalls at −0.455 because its steps
 become too small before the chain leaves the initial mode.
@@ -103,17 +104,17 @@ decreasing η0 /(1 + k/τ )
 variance-aware
 
 1.5
+1
 
 5. Conclusion
 
-1
+0.5
 
 Coupling the step size of SGLD to an online estimate of
 the gradient noise removes the most expensive tuning parameter of the method at no cost in accuracy on the problems we tested. The analysis extends to preconditioned
 variants in which σ̂k2 is replaced by a diagonal estimate, a
 direction we leave for future work.
 
-0.5
 0
 0
 
@@ -132,21 +133,17 @@ Figure 1: Step sizes produced by the variance-aware schedule and by
 a decreasing schedule with η0 = 0.02 and τ = 400 during the first
 5000 iterations of Bayesian logistic regression.
 
-W2 (µk , π) ≤ C1 e−λ
-
 P
 
-j<k ηj
-
-W2 (µ0 , π)+C2
-
+W2 (µk , π) ≤ C1 e−λ j<k ηj W2 (µ0 , π)
 p
-
 √
-ηmax d+C3 max σ̂j ηj
-j<k
++ C2 ηmax d + C3 max σ̂j ηj
 
 (6)
+
+j<k
+
 The constants C1 , C2 and C3 depend on L, m and b but
 not on the dimension, and λ is the contraction rate of the
 continuous diffusion in the Wasserstein metric. The first
@@ -161,8 +158,8 @@ use the piecewise definition of the step to separate the two
 regimes of the schedule:
 (
 2
-ηmax
 σ̂k2 , σ̂k2 ≤ 2ρd/ηmax ,
+ηmax
 E∥ηk ζk ∥2 ≤
 (7)
 2ρd ηk , otherwise.
@@ -183,7 +180,6 @@ On logistic regression the variance-aware schedule
 reaches a Stein discrepancy of 0.031 ± 0.002, against
 0.029 ± 0.002 for the best constant step found by a grid of
 eight values and 0.047 ± 0.004 for the decreasing schedule.
-On the network, the predictive log-likelihood is −0.412 for
 2
 
 

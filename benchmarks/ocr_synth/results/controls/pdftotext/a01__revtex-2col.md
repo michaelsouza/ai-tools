@@ -141,53 +141,34 @@ We assume that U is L-smooth, that is, ∥∇U (x) −
 conditions allow nonconvex potentials and are standard
 in the analysis of Langevin algorithms. Under them, the
 following bound holds for the law µk of the iterate θk .
+P
 
-IV.
-
-EXPERIMENTS
-
-We compare the schedule with a tuned constant step
-and with the decreasing schedule ηk = η0 (1 + k/τ )−1 on
-two problems. The first is Bayesian logistic regression
-on a data set with N = 58,000 examples and d = 54 feaP
+W2 (µk , π) ≤ C1 e−λ j<k ηj W2 (µ0 , π)
 p
 √
-−λ j<k ηj
-ηj The second is a two-layer network with 256 hidden
-W2 (µk , π) ≤ C1 e
-W2 (µ0 , π)+C2 ηmax d+C3 max σ̂jtures.
-j<k
-units, for which the posterior is multimodal. Accuracy
++ C2 ηmax d + C3 max σ̂j ηj
+
 (6)
-is measured by the kernel Stein discrepancy of 2000 reThe constants C1 , C2 and C3 depend on L, m and b but
-tained samples and by the predictive log-likelihood on
+
+j<k
+
+The constants C1 , C2 and C3 depend on L, m and b but
 not on the dimension, and λ is the contraction rate of the
-held-out data.
 continuous diffusion in the Wasserstein metric. The first
-On logistic regression the variance-aware schedule
 term vanishes as the accumulated step
-reaches a Stein discrepancy of 0.031 ± 0.002, against
 Plength grows, so
 the schedule converges provided that k ηk = ∞, which
-0.029±0.002 for the best constant step found by a grid of
 holds because ηk is bounded below whenever σ̂k2 stays
-eight values and 0.047±0.004 for the decreasing schedule.
 bounded.
-On the network, the predictive log-likelihood is −0.412
 The proof splits the error into a discretization part and
-for our schedule and −0.409 for the tuned constant step,
 a stochastic part. For the latter we write the minibatch
-while the decreasing schedule stalls at −0.455 because its
 error as a martingale difference ζk = gk − ∇U (θk ) and
-steps become too small before the chain leaves the initial
 use the piecewise definition of the step to separate the
-mode.
 two regimes of the schedule:
-V. CONCLUSION
 (
 2
-ηmax
 σ̂k2 , σ̂k2 ≤ 2ρd/ηmax ,
+ηmax
 E∥ηk ζk ∥ ≤
 2ρd ηk , otherwise.
 2
@@ -196,6 +177,30 @@ E∥ηk ζk ∥ ≤
 
 In both regimes the stochastic error is at most 2ρdηk ,
 which is a fraction ρ of the injected noise. Summing over
+
+IV.
+
+EXPERIMENTS
+
+We compare the schedule with a tuned constant step
+and with the decreasing schedule ηk = η0 (1 + k/τ )−1 on
+two problems. The first is Bayesian logistic regression
+on a data set with N = 58,000 examples and d = 54 features. The second is a two-layer network with 256 hidden
+units, for which the posterior is multimodal. Accuracy
+is measured by the kernel Stein discrepancy of 2000 retained samples and by the predictive log-likelihood on
+held-out data.
+On logistic regression the variance-aware schedule
+reaches a Stein discrepancy of 0.031 ± 0.002, against
+0.029±0.002 for the best constant step found by a grid of
+eight values and 0.047±0.004 for the decreasing schedule.
+On the network, the predictive log-likelihood is −0.412
+for our schedule and −0.409 for the tuned constant step,
+while the decreasing schedule stalls at −0.455 because its
+steps become too small before the chain leaves the initial
+mode.
+V.
+
+CONCLUSION
 
 Coupling the step size of SGLD to an online estimate
 of the gradient noise removes the most expensive tuning parameter of the method at no cost in accuracy on

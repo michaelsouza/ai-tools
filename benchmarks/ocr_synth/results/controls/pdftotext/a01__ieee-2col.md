@@ -112,11 +112,11 @@ vk
 with m0 = 0, v0 = 0 and β ∈ [0.9, 0.999). The minibatch
 noise injected per step has variance ηk2 σ̂k2 , whereas the Gaussian term contributes 2ηk d. Requiring the ratio of the two to
 stay below ρ gives the step
-
 
+
 2ρ d
-(5)
 ηk = min ηmax , 2
+(5)
 σ̂k + ϵ
 where ϵ > 0 prevents division by zero during the first
 iterations.2 The cap ηmax keeps the discretization error under
@@ -127,20 +127,17 @@ We assume that U is L-smooth, that is, ∥∇U (x) −
 ∇U (y)∥ ≤ L∥x − y∥ for all x, y, and that it is (m, b)dissipative, meaning ⟨∇U (x), x⟩ ≥ m∥x∥2 − b. These conditions allow nonconvex potentials and are standard in the
 analysis of Langevin algorithms. Under them, the following
 bound holds for the law µk of the iterate θk .
-W2 (µk , π) ≤ C1 e−λ
-
 P
 
-j<k ηj
-
-W2 (µ0 , π)+C2
-
+W2 (µk , π) ≤ C1 e−λ j<k ηj W2 (µ0 , π)
 p
 √
-ηmax d+C3 max σ̂j ηj
-j<k
++ C2 ηmax d + C3 max σ̂j ηj
 
 (6)
+
+j<k
+
 2 In all experiments we use ϵ = 10−8 and ρ = 0.1; the results change by
 less than one standard error for ρ ∈ [0.05, 0.2].
 

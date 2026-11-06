@@ -51,7 +51,10 @@ Figure 1: Step sizes produced by the variance-aware schedule and by a decreasing
 We assume that $U$ is $L$-smooth, that is, $\lVert \nabla U(x) - \nabla U(y) \rVert \le L \lVert x - y \rVert$ for all $x, y$, and that it is $(m, b)$-dissipative, meaning $\langle \nabla U(x), x \rangle \ge m \lVert x \rVert^2 - b$. These conditions allow nonconvex potentials and are standard in the analysis of Langevin algorithms. Under them, the following bound holds for the law $\mu_k$ of the iterate $\theta_k$.
 
 $$
-W_2(\mu_k, \pi) \le C_1 e^{-\lambda \sum_{j<k} \eta_j} W_2(\mu_0, \pi) + C_2 \sqrt{\eta_{\max} d} + C_3 \max_{j<k} \hat{\sigma}_j \sqrt{\eta_j}
+\begin{split}
+W_2(\mu_k, \pi) &\le C_1 e^{-\lambda \sum_{j<k} \eta_j} W_2(\mu_0, \pi) \\
+&\quad + C_2 \sqrt{\eta_{\max} d} + C_3 \max_{j<k} \hat{\sigma}_j \sqrt{\eta_j}
+\end{split}
 $$
 
 The constants $C_1$, $C_2$ and $C_3$ depend on $L$, $m$ and $b$ but not on the dimension, and $\lambda$ is the contraction rate of the continuous diffusion in the Wasserstein metric. The first term vanishes as the accumulated step length grows, so the schedule converges provided that $\sum_k \eta_k = \infty$, which holds because $\eta_k$ is bounded below whenever $\hat{\sigma}_k^2$ stays bounded.

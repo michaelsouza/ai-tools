@@ -7,6 +7,9 @@ USA
 
 Rafael T. Okafor
 
+Northgate Institute of Technology
+USA
+
 Abstract
 Stochastic gradient Langevin dynamics (SGLD) samples from a posterior by adding Gaussian noise of variance 2𝜂𝑘 to each stochastic
 gradient step, but its accuracy depends on a step size 𝜂𝑘 that is
@@ -20,23 +23,21 @@ Bayesian logistic regression and a two-layer network show that the
 schedule matches a tuned constant step while removing the search
 over 𝜂.
 
+c (𝜃 𝑘 ) = 𝑁 Í𝑖 ∈𝑆 ∇𝑈𝑖 (𝜃 𝑘 ) is computed on a minibatch
+where ∇𝑈
+𝑛
+𝑘
+𝑆𝑘 of size 𝑛. Two sources of error compete in this scheme. The
+discretization error grows with 𝜂𝑘 , while the minibatch noise has
+covariance of order 𝜂𝑘2 and becomes negligible relative to the injected noise only when 𝜂𝑘 is small. Practitioners therefore decrease
+𝜂𝑘 slowly or tune a constant step, and both choices are made without
+information about the actual noise level of the gradient estimator.
+
 2
 
-Variance-Aware Schedule
+Keywords
 
-Our schedule estimates the trace of the gradient covariance with
-an exponential moving average and shrinks the step whenever the
-minibatch noise would exceed a fixed fraction 𝜌 ∈ (0, 1) of the
-c (𝜃 𝑘 ) and define the recursions
-injected noise. Let 𝑔𝑘 = ∇𝑈
-(2)
-
-𝑚𝑘 = 𝛽 𝑚𝑘 −1 + (1 − 𝛽) 𝑔𝑘 ,
-
-ACM Reference Format:
-Helena M. Duarte, Rafael T. Okafor, and Sun-Hee Park. 2026. VarianceAware Step Sizes for Stochastic Gradient Langevin Dynamics on Nonconvex
-Objectives. In Symposium on Statistical Learning and Computation (SLC ’26).
-ACM, New York, NY, USA, 2 pages. https://doi.org/10.5555/3741104.3741141
+1
 
 Introduction
 
@@ -50,29 +51,6 @@ SGLD replaces the full gradient by an unbiased minibatch estimate and drops the 
 √︁
 c (𝜃 𝑘 ) + 2𝜂𝑘 𝜉𝑘 ,
 𝜃 𝑘+1 = 𝜃 𝑘 − 𝜂𝑘 ∇𝑈
-
-Northgate Institute of Technology
-USA
-
-c (𝜃 𝑘 ) = 𝑁 Í𝑖 ∈𝑆 ∇𝑈𝑖 (𝜃 𝑘 ) is computed on a minibatch
-where ∇𝑈
-𝑛
-𝑘
-𝑆𝑘 of size 𝑛. Two sources of error compete in this scheme. The
-discretization error grows with 𝜂𝑘 , while the minibatch noise has
-covariance of order 𝜂𝑘2 and becomes negligible relative to the injected noise only when 𝜂𝑘 is small. Practitioners therefore decrease
-𝜂𝑘 slowly or tune a constant step, and both choices are made without
-information about the actual noise level of the gradient estimator.
-
-Keywords
-Langevin dynamics, Bayesian inference, step-size adaptation, Wasserstein distance
-
-1
-
-Sun-Hee Park
-
-Northgate Institute of Technology
-USA
 
 𝜉𝑘 ∼ N (0, 𝐼𝑑 )
 
@@ -94,25 +72,51 @@ SLC ’26, Fortaleza, Brazil
 ACM ISBN 978-x-xxxx-xxxx-x/YYYY/MM
 https://doi.org/10.5555/3741104.3741141
 
+Variance-Aware Schedule
+
+Our schedule estimates the trace of the gradient covariance with
+an exponential moving average and shrinks the step whenever the
+minibatch noise would exceed a fixed fraction 𝜌 ∈ (0, 1) of the
+c (𝜃 𝑘 ) and define the recursions
+injected noise. Let 𝑔𝑘 = ∇𝑈
+(2)
+
+𝑚𝑘 = 𝛽 𝑚𝑘 −1 + (1 − 𝛽) 𝑔𝑘 ,
+
+Langevin dynamics, Bayesian inference, step-size adaptation, Wasserstein distance
+ACM Reference Format:
+Helena M. Duarte, Rafael T. Okafor, and Sun-Hee Park. 2026. VarianceAware Step Sizes for Stochastic Gradient Langevin Dynamics on Nonconvex
+Objectives. In Symposium on Statistical Learning and Computation (SLC ’26).
+ACM, New York, NY, USA, 2 pages. https://doi.org/10.5555/3741104.3741141
+
+Sun-Hee Park
+
+Northgate Institute of Technology
+USA
+
 2
 
 𝑣𝑘 = 𝛽 𝑣𝑘 −1 + (1 − 𝛽) ∥𝑔𝑘 − 𝑚𝑘 −1 ∥ ,
-(3)
 𝑣𝑘
-2
-𝜎ˆ𝑘 =
-(4)
+𝜎ˆ𝑘2 =
 1 − 𝛽𝑘
+
+(3)
+(4)
+
 with 𝑚 0 = 0, 𝑣 0 = 0 and 𝛽 ∈ [0.9, 0.999). The minibatch noise
 injected per step has variance 𝜂𝑘2 𝜎ˆ𝑘2 , whereas the Gaussian term
 contributes 2𝜂𝑘 𝑑. Requiring the ratio of the two to stay below 𝜌
 gives the step
-)
 (
+𝜂𝑘 = min 𝜂 max,
+
 2𝜌 𝑑
+𝜎ˆ𝑘2 + 𝜖
+
+)
 (5)
-𝜂𝑘 = min 𝜂 max, 2
-𝜎ˆ𝑘 + 𝜖
+
 where 𝜖 > 0 prevents division by zero during the first iterations.2
 The cap 𝜂 max keeps the discretization error under control in regions
 where the gradient noise is small but the curvature is large.
@@ -126,25 +130,21 @@ for all 𝑥, 𝑦, and that it is (𝑚, 𝑏)-dissipative, meaning ⟨∇𝑈 
 𝑚∥𝑥 ∥ 2 − 𝑏. These conditions allow nonconvex potentials and are
 standard in the analysis of Langevin algorithms. Under them, the
 following bound holds for the law 𝜇𝑘 of the iterate 𝜃 𝑘 .
-𝑊2 (𝜇𝑘 , 𝜋) ≤ 𝐶 1𝑒 −𝜆
-
 Í
 
-𝑗 <𝑘 𝜂 𝑗
-
+𝑊2 (𝜇𝑘 , 𝜋) ≤ 𝐶 1𝑒 −𝜆 𝑗 <𝑘 𝜂 𝑗 𝑊2 (𝜇 0, 𝜋)
 √︁
 √
-𝑊2 (𝜇0, 𝜋) + 𝐶 2 𝜂 max𝑑 + 𝐶 3 max 𝜎ˆ 𝑗 𝜂 𝑗
-𝑗 <𝑘
++ 𝐶 2 𝜂 max𝑑 + 𝐶 3 max 𝜎ˆ 𝑗 𝜂 𝑗
 
 (6)
+
+𝑗 <𝑘
+
 The constants 𝐶 1 , 𝐶 2 and 𝐶 3 depend on 𝐿, 𝑚 and 𝑏 but not on
 the dimension, and 𝜆 is the contraction rate of the continuous
 diffusion in the Wasserstein metric. The first term vanishes as
 the accumulated step length grows, so the schedule converges
-Í
-provided that 𝑘 𝜂𝑘 = ∞, which holds because 𝜂𝑘 is bounded
-below whenever 𝜎ˆ𝑘2 stays bounded.
 2 In all experiments we use 𝜖 = 10 −8 and 𝜌 = 0.1; the results change by less than one
 
 standard error for 𝜌 ∈ [0.05, 0.2] .
@@ -189,6 +189,9 @@ iteration 𝑘
 Figure 1: Step sizes produced by the variance-aware schedule
 and by a decreasing schedule with 𝜂 0 = 0.02 and 𝜏 = 400 during
 the first 5000 iterations of Bayesian logistic regression.
+Í
+provided that 𝑘 𝜂𝑘 = ∞, which holds because 𝜂𝑘 is bounded
+below whenever 𝜎ˆ𝑘2 stays bounded.
 The proof splits the error into a discretization part and a stochastic part. For the latter we write the minibatch error as a martingale
 difference 𝜁𝑘 = 𝑔𝑘 − ∇𝑈 (𝜃 𝑘 ) and use the piecewise definition of the
 step to separate the two regimes of the schedule:

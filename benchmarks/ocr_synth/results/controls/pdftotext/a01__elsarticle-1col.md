@@ -134,21 +134,16 @@ iteration k
 Figure 1: Step sizes produced by the variance-aware schedule and by a decreasing schedule
 with η0 = 0.02 and τ = 400 during the first 5000 iterations of Bayesian logistic regression.
 
-W2 (µk , π) ≤ C1 e−λ
-
 P
 
-j<k ηj
-
-W2 (µ0 , π) + C2
-
+W2 (µk , π) ≤ C1 e−λ j<k ηj W2 (µ0 , π)
 p
-
 √
-ηmax d + C3 max σ̂j ηj
-j<k
++ C2 ηmax d + C3 max σ̂j ηj
 
 (6)
+
+j<k
 
 The constants C1 , C2 and C3 depend on L, m and b but not on the
 dimension, and λ is the contraction rate of the continuous diffusion in the
@@ -165,21 +160,23 @@ regimes of the schedule:
 2
 ηmax
 σ̂k2 , σ̂k2 ≤ 2ρd/ηmax ,
+2
 (7)
-E∥ηk ζk ∥2 ≤
+E∥ηk ζk ∥ ≤
 2ρd ηk , otherwise.
 In both regimes the stochastic error is at most 2ρdηk , which is a fraction ρ
 of the injected noise. Summing over iterations and applying the contraction
 of the diffusion yields the bound.
 4. Experiments
 We compare the schedule with a tuned constant step and with the decreasing schedule ηk = η0 (1 + k/τ )−1 on two problems. The first is Bayesian
-logistic regression on a data set with N = 58,000 examples and d = 54 features. The second is a two-layer network with 256 hidden units, for which
+
 3
 
 H. Duarte et al.
 
 Journal of Computational Statistics and Learning 12 (2026) 101104
 
+logistic regression on a data set with N = 58,000 examples and d = 54 features. The second is a two-layer network with 256 hidden units, for which
 the posterior is multimodal. Accuracy is measured by the kernel Stein discrepancy of 2000 retained samples and by the predictive log-likelihood on
 held-out data.
 On logistic regression the variance-aware schedule reaches a Stein discrepancy of 0.031 ± 0.002, against 0.029 ± 0.002 for the best constant step

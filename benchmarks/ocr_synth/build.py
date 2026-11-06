@@ -107,6 +107,9 @@ def tex_body(art: dict, columns: int) -> str:
         for b in sec["blocks"]:
             if "p" in b:
                 out.append(tex_paragraph(clean(b["p"])))
+            elif "eq" in b and isinstance(b["eq"], list):
+                rows = " \\\\\n".join(clean(r) for r in b["eq"])
+                out.append(f"\\begin{{equation}}\n\\begin{{split}}\n{rows}\n\\end{{split}}\n\\end{{equation}}")
             elif "eq" in b:
                 out.append(f"\\begin{{equation}}\n{clean(b['eq'])}\n\\end{{equation}}")
             elif "align" in b:
@@ -225,6 +228,10 @@ def ground_truth(art: dict) -> tuple[dict, str]:
                 for k, c in parts:
                     for m in inline_math(c):
                         formulas.append({"id": f"{bid}_m{len(formulas)}", "latex": m, "kind": "inline"})
+            elif "eq" in b and isinstance(b["eq"], list):
+                rows = [clean(r) for r in b["eq"]]
+                formulas.append({"id": bid, "latex": " ".join(rows), "kind": "display"})
+                md += ["$$", "\\begin{split}", " \\\\\n".join(rows), "\\end{split}", "$$", ""]
             elif "eq" in b:
                 formulas.append({"id": bid, "latex": clean(b["eq"]), "kind": "display"})
                 md += ["$$", clean(b["eq"]), "$$", ""]
@@ -252,6 +259,22 @@ def compile_pdf(tex_path: Path, out_pdf: Path) -> None:
     if r.returncode != 0:
         raise SystemExit(f"LaTeX failed for {tex_path.name}; see {build / tex_path.with_suffix('.log').name}")
     shutil.copy(build / tex_path.with_suffix(".pdf").name, out_pdf)
+    check_overflow(build / tex_path.with_suffix(".log").name)
+
+
+MAX_OVERFLOW_PT = 1.0  # display math wider than the column by more than this fails the build
+
+
+def check_overflow(log: Path) -> None:
+    """Fail on display equations that run into the margin; warn on overfull text lines."""
+    text = log.read_text(encoding="latin-1")
+    for m in re.finditer(r"Overfull \\hbox \(([\d.]+)pt too wide\) (detected at line|in paragraph at lines) ([\d-]+)", text):
+        pt, kind, line = float(m.group(1)), m.group(2), m.group(3)
+        if kind.startswith("detected") and pt > MAX_OVERFLOW_PT:
+            raise SystemExit(f"{log.stem}: display equation at .tex line {line} is {pt:.1f}pt too wide; "
+                             "split it into rows (eq: [row1, row2]) in the article YAML")
+        if kind.startswith("in paragraph") and pt > 5:
+            print(f"warning: {log.stem}: text line {line} is {pt:.1f}pt too wide")
 
 
 def render_pages(pdf: Path, out_dir: Path) -> int:
