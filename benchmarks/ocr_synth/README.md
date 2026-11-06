@@ -15,7 +15,15 @@ acceptance criteria for replacing the OCR engine: issue #1.
 | `controls.py` | writes the `gt`, `pdftotext` and `perturbed` controls that validate the evaluator |
 | `data/` | generated, git-ignored: `.tex`, PDFs, 200 dpi pages, ground truth |
 
-Layouts: `elsarticle-1col` (preprint, 12 pt), `elsarticle-2col` (5p), `ieee-2col` (IEEEtran journal).
+Layouts:
+
+| Layout | Class and options | Running headers / footers |
+|---|---|---|
+| `elsarticle-1col`, `elsarticle-2col` | `elsarticle` preprint 12 pt / 5p | journal running header, first-page DOI footer |
+| `ieee-2col` | `IEEEtran` journal | IEEE journal header |
+| `revtex-1col`, `revtex-2col` | `revtex4-2` aps,pre (preprint / twocolumn, `nofootinbib`) | page numbers only |
+| `acm-1col`, `acm-2col` | `acmart` acmsmall / sigconf | ACM journal footer / conference header, copyright block |
+
 Elsevier dropped the "Preprint submitted to" footer from `elsarticle` in October 2024, so the
 Elsevier layouts get a journal running header (`fancyhdr`) and a first-page DOI footer (`\myfooter`,
 test prefix 10.5555), as a published article has.
@@ -41,13 +49,14 @@ uv run python benchmarks/ocr_synth/evaluate.py benchmarks/ocr_synth/results/cont
 
 Inline formulas whose normalized LaTeX is shorter than 8 characters are skipped (they match anywhere).
 
-## Control results (a01, 2026-11-05)
+## Control results (a01, 7 layouts, 2026-11-05)
 
 | Control | text | order | f_err (of 39) | notes | headers | splits |
 |---|---:|---:|---:|---:|---:|---:|
 | `gt` | 1.000 | 1.000 | 0 | 1.000 | 0/n | 0 |
-| `pdftotext` (2-col) | 0.91–0.93 | 0.90–0.92 | 35 | 0.90 | n/n | 0 |
-| `perturbed` | 0.99 | 0.98 | 1 | 0.75 | 1/n | 1 |
+| `pdftotext`, 1 column | 0.92–0.93 | 1.000 | 35–39 | 0.90 | n/n | 0 |
+| `pdftotext`, 2 columns | 0.85–0.93 | 0.90–0.96 | 35–39 | 0.75–0.90 | n/n | 0 |
+| `perturbed` | 0.99–1.00 | 0.98 | 1 | 0.75 | 1/n | 1 (0 for revtex, no headers) |
 
 Each perturbation (two paragraphs swapped, one footnote dropped, one wrong symbol, a header inside
 a paragraph) moves the metric meant to catch it. The mean FQS of `perturbed` still rounds to 1.000,
@@ -55,6 +64,5 @@ which is why acceptance uses `f_err`.
 
 ## Not yet done
 
-No OCR engine has been run (this machine has no GPU). Pending: more articles (~20), `revtex4-2` and
-`acmart` layouts, tables, scan-degraded variants, a runner for `pdf2md.py`, and the check that the
+No OCR engine has been run (this machine has no GPU). Pending: more articles (~20), tables, scan-degraded variants, a runner for `pdf2md.py`, and the check that the
 benchmark separates LightOnOCR-2, GLM-OCR and DeepSeek-OCR-2.

@@ -29,11 +29,17 @@ ELS_RUNNING = f"{ELS_JOURNAL} 12 (2026) 101104"
 ELS_FOOTER = "https://doi.org/10.5555/j.jcsl.2026.101104"  # 10.5555 is the DOI test prefix
 IEEE_JOURNAL = "IEEE Transactions on Statistical Learning"
 IEEE_VOLUME = "Vol.~12, No.~4, November 2026"
+ACM_JOURNAL_FOOTER = "J. ACM, Vol. 73, No. 6, Article 41. Publication date: November 2026"
+ACM_CONF_HEAD = "SLC '26, November 2026, Fortaleza, Brazil"
 
 LAYOUTS = {
     "elsarticle-1col": {"columns": 1, "headers": [ELS_RUNNING, ELS_FOOTER]},
     "elsarticle-2col": {"columns": 2, "headers": [ELS_RUNNING, ELS_FOOTER]},
     "ieee-2col": {"columns": 2, "headers": [f"{IEEE_JOURNAL}, {IEEE_VOLUME}".replace("~", " ")]},
+    "revtex-1col": {"columns": 1, "headers": []},  # APS preprint style: page numbers only
+    "revtex-2col": {"columns": 2, "headers": []},
+    "acm-1col": {"columns": 1, "headers": [ACM_JOURNAL_FOOTER]},
+    "acm-2col": {"columns": 2, "headers": [ACM_CONF_HEAD]},
 }
 
 
@@ -149,6 +155,38 @@ def render_tex(art: dict, layout: str) -> str:
             f"\\maketitle\n\\begin{{abstract}}\n{abstract}\n\\end{{abstract}}\n"
             f"\\begin{{IEEEkeywords}}\n{', '.join(art['keywords'])}\n\\end{{IEEEkeywords}}\n\n"
             f"{body}\n\n\\end{{document}}\n"
+        )
+    if layout.startswith("revtex"):
+        opts = "aps,pre,nofootinbib," + ("preprint" if columns == 1 else "twocolumn")
+        authors = "\n".join(f"\\author{{{a}}}" for a in art["authors"])
+        return (
+            f"\\documentclass[{opts}]{{revtex4-2}}\n{PREAMBLE}\\begin{{document}}\n"
+            f"\\title{{{art['title']}}}\n{authors}\n\\affiliation{{{art['affiliation']}}}\n"
+            f"\\begin{{abstract}}\n{abstract}\n\\end{{abstract}}\n\\keywords{{{', '.join(art['keywords'])}}}\n"
+            f"\\maketitle\n\n{body}\n\n\\end{{document}}\n"
+        )
+    if layout.startswith("acm"):
+        authors = "\n".join(
+            f"\\author{{{a}}}\n\\affiliation{{\\institution{{{art['affiliation'].split(', ')[-1]}}}\\country{{USA}}}}"
+            for a in art["authors"]
+        )
+        if columns == 1:
+            head = (
+                "\\documentclass[acmsmall]{acmart}\n\\acmJournal{JACM}\\acmVolume{73}\\acmNumber{6}\\acmArticle{41}"
+                "\\acmYear{2026}\\acmMonth{11}\n"
+            )
+        else:
+            head = (
+                "\\documentclass[sigconf]{acmart}\n"
+                "\\acmConference[SLC '26]{Symposium on Statistical Learning and Computation}{November 2026}{Fortaleza, Brazil}\n"
+                "\\acmYear{2026}\\acmBooktitle{Symposium on Statistical Learning and Computation (SLC '26)}\n"
+            )
+        return (
+            f"{head}\\setcopyright{{acmlicensed}}\\copyrightyear{{2026}}\\acmDOI{{10.5555/3741104.3741141}}\n"
+            f"\\usepackage{{pgfplots}}\n\\pgfplotsset{{compat=1.18}}\n\\begin{{document}}\n"
+            f"\\title{{{art['title']}}}\n{authors}\n\\renewcommand{{\\shortauthors}}{{{art['authors'][0].split()[-1]} et al.}}\n"
+            f"\\begin{{abstract}}\n{abstract}\n\\end{{abstract}}\n\\keywords{{{', '.join(art['keywords'])}}}\n"
+            f"\\maketitle\n\n{body}\n\n\\end{{document}}\n"
         )
     raise ValueError(layout)
 

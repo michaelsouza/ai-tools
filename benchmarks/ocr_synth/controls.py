@@ -27,6 +27,8 @@ def perturb(md: str, gt: dict) -> str:
         paras[idx[0]], paras[idx[1]] = paras[idx[1]], paras[idx[0]]
     md = "\n\n".join(p for p in paras if not p.startswith("[^1]:"))
     md = md.replace(r"\sqrt{2\eta_k}", r"\sqrt{2\beta_k}", 1)
+    if not gt["headers"]:  # layouts without running headers (revtex) get no header perturbation
+        return md
     header = gt["headers"][0]
     target = next(b for b in blocks if len(b) > 400)
     # cut after a sentence near the middle, outside inline math, like a page break would
