@@ -23,7 +23,7 @@ OPENROUTER_API_KEY=your_openrouter_api_key
 
 **Documents & web:** [`pdf2md.py`](#pdf2mdpy) · [`png2md.py`](#png2mdpy) · [`url2md.py`](#url2mdpy) · [`slides2pdf.py`](#slides2pdfpy) · [`html2png.py`](#html2pngpy) · [`pdf_review.py`](#pdf_reviewpy)
 
-**Code & tokens:** [`flowchart.py`](#flowchartpy) · [`count_tokens.py`](#count_tokenspy)
+**Code & tokens:** [`flowchart.py`](#flowchartpy) · [`count_tokens.py`](#count_tokenspy) · [`gh_activity.py`](#gh_activitypy)
 
 **Bibliography:** [`merge_bib.py`](#merge_bibpy) · [`scopus_rank.py`](#scopus_rankpy)
 
@@ -278,6 +278,22 @@ Token counts for files/dirs.
 
 ```bash
 python tools/count_tokens.py . -e cl100k_base
+```
+
+### `gh_activity.py`
+
+GitHub activity in a date window → Markdown, as raw material for an activity summary (TLDR).
+
+- Covers owned repos pushed or updated in the window, plus other owners' repos with issues/PRs that involve you.
+- Commits from **all branches**, each listed once (default branch first; other branches tagged `[branch]`).
+- Issues and PRs updated in the window, tagged with open/close/merge dates, plus the last comment.
+- `--local DIR` adds unpushed commits and recently modified uncommitted files from the clones under `DIR`.
+- Needs an authenticated `gh` CLI. Default output: `outputs/activity/<today>.md`.
+- **Flags:** `--since` (default 15 days ago), `-o/--output`, `--json`, `--local`, `--comment-chars` (default 600).
+
+```bash
+python tools/gh_activity.py --local ~/gitrepos
+python tools/gh_activity.py --since 2026-10-22 -o report.md
 ```
 
 ### `merge_bib.py`
